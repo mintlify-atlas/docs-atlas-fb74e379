@@ -1,0 +1,131 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Amazon Nova Act",
+  "projectDescription": "Python SDK for building and deploying AI agents that automate UI-based workflows at scale",
+  "theme": "aspen",
+  "primaryColor": "#d239ee",
+  "lightColor": "#9e3cfc",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "authentication",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/workflows",
+              "concepts/browser-automation",
+              "concepts/prompting",
+              "concepts/data-extraction",
+              "concepts/human-in-the-loop"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/deployment",
+              "guides/parallel-sessions",
+              "guides/authentication-cookies",
+              "guides/security",
+              "guides/file-operations",
+              "guides/error-handling",
+              "guides/logging-traces"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/tools",
+              "advanced/state-guardrails",
+              "advanced/proxy-configuration",
+              "advanced/headless-mode",
+              "advanced/s3-storage"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/novaact",
+              "api/workflow",
+              "api/act-result"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "api/security-options",
+              "api/guardrails"
+            ]
+          },
+          {
+            "group": "Error Handling",
+            "pages": [
+              "api/errors"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/schemas",
+              "api/tools"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI",
+        "groups": [
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/overview",
+              "cli/installation",
+              "cli/commands",
+              "cli/deployment",
+              "cli/configuration"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered browser automation with natural language prompts",
+    "Workflow orchestration combining Python code and natural language",
+    "Structured data extraction from web pages using Pydantic schemas",
+    "Human-in-the-loop capabilities for approval and UI takeover",
+    "Deploy workflows to AWS AgentCore Runtime at scale",
+    "Parallel browser session management",
+    "Security controls with state guardrails and file permissions",
+    "Tool integration beyond the browser (APIs, MCP servers)"
+  ],
+  "publicApiSurface": [
+    "NovaAct - Main client class for browser automation",
+    "NovaAct.act() - Execute browser automation tasks",
+    "NovaAct.act_get() - Execute tasks and extract structured data",
+    "Workflow - Context manager for workflow orchestration",
+    "@workflow - Decorator for workflow functions",
+    "@tool - Decorator for custom tools",
+    "SecurityOptions - Configure security controls",
+    "GuardrailDecision - Control URL navigation",
+    "HumanInputCallbacksBase - Implement HITL patterns",
+    "ActError - Base exception class for errors",
+    "BOOL_SCHEMA - Boolean response schema",
+    "STRING_SCHEMA - String response schema"
+  ]
+}
