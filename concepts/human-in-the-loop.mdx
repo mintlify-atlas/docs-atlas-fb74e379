@@ -1,0 +1,429 @@
+---
+title: 'Human-in-the-Loop (HITL)'
+description: 'Enable human supervision and intervention in Nova Act workflows with approval and UI takeover patterns'
+---
+
+## Overview
+
+Nova Act's Human-in-the-Loop (HITL) capability enables seamless human supervision within autonomous web workflows. When your workflow encounters scenarios requiring human judgment or intervention, HITL provides tools and user interfaces for supervisors to assist, verify, or take control of the process.
+
+<Note>
+HITL is available in the Nova Act SDK for you to implement in your workflows (not provided as a managed AWS service).
+</Note>
+
+## HITL Patterns
+
+Nova Act supports two primary HITL patterns:
+
+### Human Approval
+
+Human approval enables asynchronous human decision-making in automated processes. When Nova Act encounters a decision point requiring human judgment, it can:
+
+- Capture a screenshot of the current state
+- Present it to a human reviewer via a browser-based interface
+- Wait for approval/rejection or multi-choice decisions
+
+**Use cases:**
+- Financial transactions
+- Purchase approvals
+- Expense reports
+- Sensitive form submissions
+- Cart checkout confirmation
+
+### UI Takeover
+
+UI takeover enables real-time human control of a remote browser session. When Nova Act encounters a task requiring human interaction, it hands control to a human operator via a live-streaming interface.
+
+**Use cases:**
+- Solving CAPTCHA challenges
+- Logging into systems
+- Filling sensitive information
+- Handling unexpected UI changes
+- Complex multi-factor authentication
+
+## Implementing HITL
+
+### Basic Implementation
+
+To implement HITL patterns in the Nova Act SDK, define a class that extends `HumanInputCallbacksBase` and implements its abstract methods:
+
+```python
+from nova_act import NovaAct
+from nova_act.tools.human.interface.human_input_callback import (
+    ApprovalResponse,
+    HumanInputCallbacksBase,
+    UiTakeoverResponse,
+)
+
+class MyHumanInputCallbacks(HumanInputCallbacksBase):
+    def approve(self, message: str) -> ApprovalResponse:
+        # Implement your approval logic
+        print(f"Approval requested: {message}")
+        # Return ApprovalResponse.YES or ApprovalResponse.CANCEL
+        return ApprovalResponse.YES
+    
+    def ui_takeover(self, message: str) -> UiTakeoverResponse:
+        # Implement your UI takeover logic
+        print(f"UI takeover requested: {message}")
+        # Return UiTakeoverResponse.COMPLETE or UiTakeoverResponse.CANCEL
+        return UiTakeoverResponse.COMPLETE
+
+with NovaAct(
+    starting_page="https://example.com",
+    tty=False,
+    human_input_callbacks=MyHumanInputCallbacks(),
+) as nova:
+    result = nova.act_get("Complete the task and ask for approval before submitting")
+    print(f"Task completed: {result.response}")
+```
+
+## Console-Based Implementation
+
+Here's a complete example using console input for human decisions:
+
+```python
+from nova_act import NovaAct
+from nova_act.tools.human.interface.human_input_callback import (
+    ApprovalResponse,
+    HumanInputCallbacksBase,
+    UiTakeoverResponse,
+)
+
+class ConsoleBasedHumanInputCallbacks(HumanInputCallbacksBase):
+    def approve(self, message: str) -> ApprovalResponse:
+        print(f"\n🤖 Approval required for act_id: {self.current_act_id} "
+              f"inside act_session_id: {self.act_session_id}:")
+        print(f"   {message}")
+        
+        while True:
+            answer = input("   Please enter '(y)es' or '(n)o' to approve the request: ")
+            if answer in ["n", "y"]:
+                return ApprovalResponse.YES if answer == "y" else ApprovalResponse.CANCEL
+    
+    def ui_takeover(self, message: str) -> UiTakeoverResponse:
+        print(f"\n🤖 UI Takeover required for act_id: {self.current_act_id} "
+              f"inside act_session_id: {self.act_session_id}:")
+        print(f"   {message}")
+        print("   Please complete the action in the browser...")
+        
+        while True:
+            answer = input(
+                "   Please enter '(d)one' or '(c)ancel' to indicate completion or cancellation: "
+            )
+            if answer in ["d", "c"]:
+                return UiTakeoverResponse.COMPLETE if answer == "d" else UiTakeoverResponse.CANCEL
+
+def print_email_count(email_app_url: str) -> None:
+    task_prompt = (
+        "Log into the email web application. "
+        "Ask for approval to return the number of emails in the inbox. "
+        "If approved, return the number of emails in the inbox."
+    )
+    
+    with NovaAct(
+        starting_page=email_app_url,
+        tty=False,
+        human_input_callbacks=ConsoleBasedHumanInputCallbacks(),
+    ) as nova:
+        result = nova.act_get(task_prompt)
+        print(f"Task completed: {result.response}")
+```
+
+## Callback Methods
+
+### `approve(message: str) -> ApprovalResponse`
+
+Called when the agent needs human approval to proceed.
+
+**Parameters:**
+- `message`: Clear instructions to the human on what needs to be approved
+
+**Returns:**
+- `ApprovalResponse.YES`: Approve and continue
+- `ApprovalResponse.CANCEL`: Reject and cancel the operation
+
+**Example:**
+```python
+def approve(self, message: str) -> ApprovalResponse:
+    # Display message to user (console, web UI, mobile app, etc.)
+    print(f"Approval needed: {message}")
+    
+    # Get human decision
+    user_decision = get_user_approval()  # Your implementation
+    
+    if user_decision:
+        return ApprovalResponse.YES
+    else:
+        return ApprovalResponse.CANCEL
+```
+
+### `ui_takeover(message: str) -> UiTakeoverResponse`
+
+Called when the agent needs a human to take control of the browser.
+
+**Parameters:**
+- `message`: Clear instructions on what actions need to be completed by the human
+
+**Returns:**
+- `UiTakeoverResponse.COMPLETE`: Human completed the task
+- `UiTakeoverResponse.CANCEL`: Human canceled the operation
+
+**Example:**
+```python
+def ui_takeover(self, message: str) -> UiTakeoverResponse:
+    # Display browser to user and explain what they need to do
+    print(f"Please take over the browser: {message}")
+    
+    # Wait for human to complete the task
+    human_completed = wait_for_human_completion()  # Your implementation
+    
+    if human_completed:
+        return UiTakeoverResponse.COMPLETE
+    else:
+        return UiTakeoverResponse.CANCEL
+```
+
+## Accessing Context Information
+
+The `HumanInputCallbacksBase` class provides access to useful context:
+
+### Current Screenshot
+
+Access the most recent browser screenshot:
+
+```python
+class MyHumanInputCallbacks(HumanInputCallbacksBase):
+    def approve(self, message: str) -> ApprovalResponse:
+        # Get base64-encoded screenshot
+        screenshot = self.most_recent_screenshot
+        
+        # Display to user for context
+        display_image_to_user(screenshot)
+        
+        # Get approval decision
+        return get_user_decision()
+```
+
+### Session and Act IDs
+
+Track which workflow execution is requesting input:
+
+```python
+class MyHumanInputCallbacks(HumanInputCallbacksBase):
+    def approve(self, message: str) -> ApprovalResponse:
+        # Log the request
+        print(f"Session: {self.act_session_id}")
+        print(f"Act ID: {self.current_act_id}")
+        print(f"Message: {message}")
+        
+        # Store in database or send to monitoring system
+        log_approval_request(
+            session_id=self.act_session_id,
+            act_id=self.current_act_id,
+            message=message
+        )
+        
+        return ApprovalResponse.YES
+```
+
+## Error Handling
+
+Handle cancellation scenarios gracefully:
+
+```python
+from nova_act import NovaAct, ActError
+from nova_act.tools.human.interface.human_input_callback import (
+    ApprovalResponse,
+    HumanInputCallbacksBase,
+)
+
+class MyHumanInputCallbacks(HumanInputCallbacksBase):
+    def approve(self, message: str) -> ApprovalResponse:
+        # If user cancels, this will raise ApproveCanceledError
+        return ApprovalResponse.CANCEL
+
+with NovaAct(
+    starting_page="https://example.com",
+    tty=False,
+    human_input_callbacks=MyHumanInputCallbacks(),
+) as nova:
+    try:
+        result = nova.act_get(
+            "Process the transaction and request approval before submitting"
+        )
+        print(f"Success: {result.response}")
+    except ActError as e:
+        print(f"Task failed: {e}")
+        # Handle cancellation or other errors
+```
+
+## Web-Based Implementation
+
+For production systems, you'll typically want a web-based UI:
+
+```python
+class WebBasedHumanInputCallbacks(HumanInputCallbacksBase):
+    def __init__(self, approval_api_url: str):
+        super().__init__()
+        self.approval_api_url = approval_api_url
+    
+    def approve(self, message: str) -> ApprovalResponse:
+        # Send screenshot and message to web API
+        screenshot = self.most_recent_screenshot
+        
+        response = requests.post(
+            f"{self.approval_api_url}/approval",
+            json={
+                "session_id": self.act_session_id,
+                "act_id": self.current_act_id,
+                "message": message,
+                "screenshot": screenshot,
+            }
+        )
+        
+        # Wait for human decision (polling or webhook)
+        decision = wait_for_approval_decision(response.json()["approval_id"])
+        
+        return ApprovalResponse.YES if decision["approved"] else ApprovalResponse.CANCEL
+    
+    def ui_takeover(self, message: str) -> UiTakeoverResponse:
+        # Stream browser session to web interface
+        # Implementation depends on your architecture
+        pass
+
+with NovaAct(
+    starting_page="https://example.com",
+    tty=False,
+    human_input_callbacks=WebBasedHumanInputCallbacks("https://approval.example.com"),
+) as nova:
+    result = nova.act_get("Complete the workflow with human supervision")
+```
+
+## Integration with Workflows
+
+HITL works seamlessly with the Workflow context:
+
+```python
+from nova_act import NovaAct, Workflow
+from nova_act.tools.human.interface.human_input_callback import (
+    HumanInputCallbacksBase,
+    ApprovalResponse,
+    UiTakeoverResponse,
+)
+
+class MyHumanInputCallbacks(HumanInputCallbacksBase):
+    def approve(self, message: str) -> ApprovalResponse:
+        return get_approval_from_user(message)
+    
+    def ui_takeover(self, message: str) -> UiTakeoverResponse:
+        return wait_for_user_completion(message)
+
+with Workflow(
+    workflow_definition_name="supervised-workflow",
+    model_id="nova-act-latest"
+) as workflow:
+    with NovaAct(
+        starting_page="https://example.com",
+        workflow=workflow,
+        tty=False,
+        human_input_callbacks=MyHumanInputCallbacks(),
+    ) as nova:
+        result = nova.act_get(
+            "Complete the purchase. "
+            "Request approval before submitting payment. "
+            "Request UI takeover if CAPTCHA appears."
+        )
+        print(f"Purchase completed: {result.response}")
+```
+
+## Best Practices
+
+### 1. Always Set tty=False
+
+When using HITL callbacks, disable TTY mode:
+
+```python
+with NovaAct(
+    starting_page="https://example.com",
+    tty=False,  # Required for HITL
+    human_input_callbacks=MyHumanInputCallbacks(),
+) as nova:
+    pass
+```
+
+### 2. Provide Clear Messages
+
+Be specific about what action needs human intervention:
+
+```python
+# Good
+nova.act_get(
+    "Fill in the expense report. "
+    "Before submitting, request approval with the message: "
+    "'Please approve expense report for $1,234.56 dated January 15, 2025'"
+)
+
+# Bad - vague
+# nova.act_get("Fill in the form and get approval")
+```
+
+### 3. Use Screenshots for Context
+
+Always display the screenshot to provide visual context:
+
+```python
+def approve(self, message: str) -> ApprovalResponse:
+    screenshot = self.most_recent_screenshot
+    # Show screenshot alongside approval request
+    display_screenshot_and_message(screenshot, message)
+    return get_user_decision()
+```
+
+### 4. Handle Timeouts
+
+Implement timeouts for human responses:
+
+```python
+def approve(self, message: str) -> ApprovalResponse:
+    try:
+        decision = get_user_decision(timeout=300)  # 5 minutes
+        return decision
+    except TimeoutError:
+        # Auto-reject after timeout
+        return ApprovalResponse.CANCEL
+```
+
+### 5. Log All HITL Events
+
+Maintain an audit trail:
+
+```python
+def approve(self, message: str) -> ApprovalResponse:
+    # Log the request
+    log.info(
+        f"Approval requested - Session: {self.act_session_id}, "
+        f"Act: {self.current_act_id}, Message: {message}"
+    )
+    
+    decision = get_user_decision()
+    
+    # Log the response
+    log.info(
+        f"Approval decision - Session: {self.act_session_id}, "
+        f"Decision: {'approved' if decision == ApprovalResponse.YES else 'rejected'}"
+    )
+    
+    return decision
+```
+
+## Default Behavior
+
+If you don't provide `human_input_callbacks`, the default implementation will raise `NoHumanInputToolAvailable` when the agent tries to use HITL features:
+
+```python
+# Without HITL callbacks
+with NovaAct(starting_page="https://example.com") as nova:
+    # If the agent tries to request approval, this will fail
+    # with NoHumanInputToolAvailable
+    nova.act("Request approval before proceeding")
+```

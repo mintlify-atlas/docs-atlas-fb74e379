@@ -1,0 +1,440 @@
+---
+title: Installation
+description: Install and configure the Amazon Nova Act CLI
+---
+
+## Prerequisites
+
+Before installing the Nova Act CLI, ensure you have the following requirements:
+
+<CardGroup cols={2}>
+  <Card title="AWS CLI" icon="aws">
+    Configured with appropriate permissions
+  </Card>
+  <Card title="Docker" icon="docker">
+    Installed and running for container builds
+  </Card>
+  <Card title="Python 3.10+" icon="python">
+    Required for running the CLI
+  </Card>
+  <Card title="IAM Permissions" icon="shield">
+    Access to ECR, AgentCore, IAM, and S3
+  </Card>
+</CardGroup>
+
+## Install via pip
+
+Install the Nova Act CLI with the `[cli]` extra to include all command-line dependencies:
+
+```bash
+pip install nova-act[cli]
+```
+
+<Note>
+The `[cli]` extra includes all dependencies needed for the command-line interface. If you only need the Nova Act SDK for programmatic use, install without the extra: `pip install nova-act`
+</Note>
+
+## Verify Installation
+
+Confirm the CLI is installed correctly:
+
+```bash
+act --version
+```
+
+You should see output similar to:
+
+```
+Nova Act CLI, version 1.0.0
+```
+
+## Check Help
+
+View available commands:
+
+```bash
+act --help
+```
+
+View workflow-specific commands:
+
+```bash
+act workflow --help
+```
+
+## Verify Prerequisites
+
+<Steps>
+  <Step title="Check AWS CLI Configuration">
+    Verify AWS credentials are configured:
+    
+    ```bash
+    aws sts get-caller-identity
+    ```
+    
+    Expected output:
+    ```json
+    {
+        "UserId": "AIDAXXXXXXXXXXXXXXXXX",
+        "Account": "123456789012",
+        "Arn": "arn:aws:iam::123456789012:user/your-username"
+    }
+    ```
+    
+    <Note>
+    If this fails, run `aws configure` to set up your credentials.
+    </Note>
+  </Step>
+
+  <Step title="Check Docker">
+    Ensure Docker is installed and running:
+    
+    ```bash
+    docker --version
+    ```
+    
+    Expected output:
+    ```
+    Docker version 24.0.0, build abc1234
+    ```
+    
+    Test Docker is running:
+    ```bash
+    docker ps
+    ```
+    
+    <Warning>
+    If you see "Cannot connect to the Docker daemon", start Docker Desktop or the Docker service.
+    </Warning>
+  </Step>
+
+  <Step title="Check Python Version">
+    Verify Python 3.10 or higher is installed:
+    
+    ```bash
+    python --version
+    ```
+    
+    Expected output:
+    ```
+    Python 3.10.0 (or higher)
+    ```
+  </Step>
+</Steps>
+
+## Configure AWS Credentials
+
+The CLI uses standard AWS credential resolution. Configure credentials using any of these methods:
+
+<Tabs>
+  <Tab title="AWS CLI">
+    Configure credentials interactively:
+    
+    ```bash
+    aws configure
+    ```
+    
+    Provide:
+    - AWS Access Key ID
+    - AWS Secret Access Key
+    - Default region (e.g., `us-east-1`)
+    - Default output format (e.g., `json`)
+  </Tab>
+
+  <Tab title="Environment Variables">
+    Set credentials via environment variables:
+    
+    ```bash
+    export AWS_ACCESS_KEY_ID="your-access-key"
+    export AWS_SECRET_ACCESS_KEY="your-secret-key"
+    export AWS_DEFAULT_REGION="us-east-1"
+    ```
+  </Tab>
+
+  <Tab title="AWS Profiles">
+    Configure multiple profiles in `~/.aws/credentials`:
+    
+    ```ini
+    [default]
+    aws_access_key_id = YOUR_ACCESS_KEY
+    aws_secret_access_key = YOUR_SECRET_KEY
+    
+    [development]
+    aws_access_key_id = DEV_ACCESS_KEY
+    aws_secret_access_key = DEV_SECRET_KEY
+    ```
+    
+    Use a specific profile:
+    ```bash
+    act workflow --profile development deploy --name my-workflow
+    ```
+  </Tab>
+
+  <Tab title="IAM Role (EC2/ECS)">
+    If running on EC2 or ECS, the CLI automatically uses the instance/task IAM role.
+    
+    No configuration needed - credentials are retrieved automatically.
+  </Tab>
+</Tabs>
+
+## AWS Permissions Required
+
+The CLI requires specific IAM permissions. Choose the appropriate policy based on your use case:
+
+### Complete Policy (All Features)
+
+For full CLI functionality including deployment and execution:
+
+<Accordion title="View Complete IAM Policy">
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "STSIdentityVerification",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IAMRoleManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:AttachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::*:role/nova-act-*"
+    },
+    {
+      "Sid": "ECRRepositoryManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:DescribeRepositories",
+        "ecr:CreateRepository"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ECRImageOperations",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ],
+      "Resource": "arn:aws:ecr:*:*:repository/*"
+    },
+    {
+      "Sid": "S3BucketManagement",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:HeadBucket",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketEncryption",
+        "s3:GetBucketEncryption",
+        "s3:PutBucketVersioning",
+        "s3:GetBucketVersioning",
+        "s3:ListAllMyBuckets"
+      ],
+      "Resource": "arn:aws:s3:::nova-act-*"
+    },
+    {
+      "Sid": "S3ObjectOperations",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::nova-act-*/*"
+    },
+    {
+      "Sid": "BedrockAgentCoreControl",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:CreateAgentRuntime",
+        "bedrock-agentcore:UpdateAgentRuntime",
+        "bedrock-agentcore:ListAgentRuntimes"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BedrockAgentCoreData",
+      "Effect": "Allow",
+      "Action": ["bedrock-agentcore:InvokeAgentRuntime"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NovaActWorkflowDefinitions",
+      "Effect": "Allow",
+      "Action": [
+        "nova-act:CreateWorkflowDefinition",
+        "nova-act:GetWorkflowDefinition",
+        "nova-act:DeleteWorkflowDefinition"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsStreaming",
+      "Effect": "Allow",
+      "Action": [
+        "logs:StartLiveTail",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+</Accordion>
+
+### Minimal Policy (Run Workflows Only)
+
+For users who only need to execute existing workflows:
+
+<Accordion title="View Minimal IAM Policy">
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "bedrock-agentcore:InvokeAgentRuntime",
+        "logs:StartLiveTail",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+</Accordion>
+
+### Developer Policy (Deploy Without IAM Role Creation)
+
+For developers who deploy workflows but use pre-created execution roles:
+
+<Accordion title="View Developer IAM Policy">
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["iam:GetRole"],
+      "Resource": "arn:aws:iam::*:role/nova-act-*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:DescribeRepositories",
+        "ecr:CreateRepository",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:HeadBucket",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketEncryption",
+        "s3:GetBucketEncryption",
+        "s3:PutBucketVersioning",
+        "s3:GetBucketVersioning",
+        "s3:ListAllMyBuckets",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::nova-act-*",
+        "arn:aws:s3:::nova-act-*/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:CreateAgentRuntime",
+        "bedrock-agentcore:UpdateAgentRuntime",
+        "bedrock-agentcore:ListAgentRuntimes",
+        "bedrock-agentcore:InvokeAgentRuntime"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "nova-act:CreateWorkflowDefinition",
+        "nova-act:GetWorkflowDefinition",
+        "nova-act:DeleteWorkflowDefinition"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:StartLiveTail",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Provide existing role with `--execution-role-arn` flag:
+```bash
+act workflow deploy --source-dir /path/to/code \
+  --execution-role-arn arn:aws:iam::123456789012:role/my-execution-role
+```
+</Accordion>
+
+## Region Support
+
+<Warning>
+**Important:** The AWS Nova Act service is currently only available in **us-east-1**.
+
+While the CLI supports multi-region configuration, workflows must be deployed to us-east-1.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Commands Reference" icon="terminal" href="/cli/commands">
+    Learn all available CLI commands
+  </Card>
+  <Card title="Deploy Your First Workflow" icon="rocket" href="/cli/deployment">
+    Follow the deployment guide
+  </Card>
+</CardGroup>

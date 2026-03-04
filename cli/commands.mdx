@@ -1,0 +1,713 @@
+---
+title: CLI Commands
+description: Complete reference for all Amazon Nova Act CLI commands
+---
+
+## Command Overview
+
+The Nova Act CLI provides seven core workflow management commands:
+
+| Command | Description |
+|---------|-------------|
+| `create` | Register a new workflow in configuration |
+| `deploy` | Build and deploy workflow to AWS AgentCore |
+| `run` | Execute deployed workflow with payload |
+| `list` | Show all configured workflows |
+| `show` | Display detailed workflow information |
+| `update` | Modify workflow configuration |
+| `delete` | Remove workflow from configuration |
+
+## create
+
+Register a new workflow in the configuration with optional WorkflowDefinition.
+
+### Syntax
+
+```bash
+act workflow create --name <workflow-name> [OPTIONS]
+```
+
+### Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--name, -n` | Yes | Name of the workflow |
+| `--workflow-definition-arn` | No | Optional WorkflowDefinition ARN to associate |
+| `--region` | No | Region for WorkflowDefinition (defaults to config default_region) |
+| `--s3-bucket-name` | No | Custom S3 bucket name for workflow exports |
+| `--skip-s3-creation` | No | Skip automatic S3 bucket creation |
+
+### Examples
+
+<Tabs>
+  <Tab title="Basic Creation">
+    Create a workflow with default settings:
+    
+    ```bash
+    act workflow create --name my-workflow
+    ```
+    
+    Output:
+    ```
+    ✅ Created workflow 'my-workflow'
+       Region: us-east-1
+       WorkflowDefinition ARN: arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow
+       Console URL: https://console.aws.amazon.com/nova-act/...
+       State saved to: ~/.act_cli/state/123456789012/us-east-1/workflows.json
+    
+    Next Steps
+      act workflow deploy --name my-workflow --source-dir <your-code-directory>
+    ```
+  </Tab>
+
+  <Tab title="With Existing WorkflowDefinition">
+    Associate an existing WorkflowDefinition:
+    
+    ```bash
+    act workflow create --name my-workflow \
+      --workflow-definition-arn arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow
+    ```
+  </Tab>
+
+  <Tab title="Custom S3 Bucket">
+    Specify a custom S3 bucket:
+    
+    ```bash
+    act workflow create --name my-workflow \
+      --s3-bucket-name my-custom-bucket
+    ```
+  </Tab>
+
+  <Tab title="Skip S3 Creation">
+    Create workflow without S3 bucket:
+    
+    ```bash
+    act workflow create --name my-workflow --skip-s3-creation
+    ```
+  </Tab>
+</Tabs>
+
+### Notes
+
+- The command automatically creates a WorkflowDefinition with the provided name
+- Default S3 bucket follows pattern: `nova-act-{account-id}-{region}`
+- Workflow name must match the name in the WorkflowDefinition ARN if provided
+
+---
+
+## deploy
+
+Build and deploy a workflow to AWS AgentCore Runtime with containerization.
+
+### Syntax
+
+```bash
+act workflow deploy [--name <workflow-name>] [--source-dir <path>] [OPTIONS]
+```
+
+### Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--name, -n` | No | Name of the workflow (auto-generated if using `--source-dir`) |
+| `--source-dir` | No* | Path to source directory for quick-deploy |
+| `--entry-point` | No | Entry point script file (e.g., `my_script.py`, defaults to `main.py`) |
+| `--region` | No | AWS region for deployment |
+| `--execution-role-arn` | No | Use existing IAM role ARN for workflow execution |
+| `--ecr-repo` | No | Custom ECR repository URI |
+| `--no-build` | No | Skip building before deploy |
+| `--skip-entrypoint-validation` | No | Skip entry point validation (advanced users) |
+| `--build-dir` | No | Custom local directory for build files |
+| `--overwrite-build-dir` | No | Overwrite existing build directory without prompting |
+| `--s3-bucket-name` | No | Custom S3 bucket name for workflow exports |
+| `--skip-s3-creation` | No | Skip automatic S3 bucket creation |
+
+<Note>
+* Either `--name` (for named workflows) or `--source-dir` (for quick-deploy) must be provided.
+</Note>
+
+### Examples
+
+<Tabs>
+  <Tab title="Quick Deploy">
+    Deploy a directory without pre-creating a workflow:
+    
+    ```bash
+    act workflow deploy --source-dir /path/to/your/project
+    ```
+    
+    Output:
+    ```
+    🚀 Deployment successful!
+    
+    Deployment Details:
+      Name:       workflow-20251130-120945
+      Agent ARN:  arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/abc123
+      Region:     us-east-1
+      Workflow Console: https://console.aws.amazon.com/nova-act/...
+      Agent Console:    https://console.aws.amazon.com/bedrock/agentcore/...
+    
+    Next Steps:
+      Run workflow:
+        act workflow run --name workflow-20251130-120945 --payload "{}"
+      Run with logs:
+        act workflow run --name workflow-20251130-120945 --payload "{}" --tail-logs
+    ```
+  </Tab>
+
+  <Tab title="Named Workflow">
+    Deploy a pre-created workflow:
+    
+    ```bash
+    act workflow deploy --name my-workflow --source-dir /path/to/code
+    ```
+  </Tab>
+
+  <Tab title="Custom Entry Point">
+    Specify a custom entry point:
+    
+    ```bash
+    act workflow deploy --source-dir /path/to/project --entry-point app.py
+    ```
+    
+    <Warning>
+    The entry point must contain a `def main(payload):` function.
+    </Warning>
+  </Tab>
+
+  <Tab title="With Existing IAM Role">
+    Use an existing execution role:
+    
+    ```bash
+    act workflow deploy --source-dir /path/to/code \
+      --execution-role-arn arn:aws:iam::123456789012:role/my-execution-role
+    ```
+  </Tab>
+
+  <Tab title="Custom Build Directory">
+    Preserve build artifacts in a specific location:
+    
+    ```bash
+    act workflow deploy --source-dir /path/to/code \
+      --build-dir /tmp/my-build \
+      --overwrite-build-dir
+    ```
+  </Tab>
+
+  <Tab title="Custom ECR Repository">
+    Deploy to a custom ECR repository:
+    
+    ```bash
+    act workflow deploy --source-dir /path/to/code \
+      --ecr-repo 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo
+    ```
+  </Tab>
+</Tabs>
+
+### Deployment Process
+
+The deploy command performs these steps automatically:
+
+<Steps>
+  <Step title="Validate Entry Point">
+    Checks that the entry point exists and contains a `main(payload)` function.
+  </Step>
+  <Step title="Build Docker Image">
+    Creates a container image with your workflow code and dependencies.
+  </Step>
+  <Step title="Push to ECR">
+    Authenticates with ECR and pushes the Docker image.
+  </Step>
+  <Step title="Create/Update IAM Role">
+    Creates an execution role with necessary permissions (unless `--execution-role-arn` provided).
+  </Step>
+  <Step title="Create WorkflowDefinition">
+    Registers the workflow with the Nova Act service.
+  </Step>
+  <Step title="Deploy to AgentCore">
+    Creates or updates the AgentCore Runtime with the new image.
+  </Step>
+</Steps>
+
+### Notes
+
+- Default build location: `~/.act_cli/builds/{workflow-name}/`
+- Build artifacts are persistent and not automatically cleaned up
+- Default builds always overwrite previous builds for the same workflow
+- Custom build directories require `--overwrite-build-dir` flag to overwrite
+
+---
+
+## run
+
+Execute a deployed workflow on AgentCore Runtime with a JSON payload.
+
+### Syntax
+
+```bash
+act workflow run --name <workflow-name> (--payload <json> | --payload-file <path>) [OPTIONS]
+```
+
+### Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--name, -n` | Yes | Name of the workflow |
+| `--payload` | No* | JSON payload string |
+| `--payload-file` | No* | Path to JSON payload file |
+| `--region` | No | AWS region for deployment |
+| `--tail-logs` | No | Stream logs in real-time (requires `logs:StartLiveTail` permission) |
+| `--timeout` | No | Read timeout in seconds (default: 7200) |
+
+<Note>
+* Either `--payload` or `--payload-file` must be provided.
+</Note>
+
+### Examples
+
+<Tabs>
+  <Tab title="Basic Execution">
+    Run with inline JSON payload:
+    
+    ```bash
+    act workflow run --name my-workflow --payload '{"input": "test data"}'
+    ```
+    
+    Output:
+    ```
+    Workflow Details
+    Workflow: my-workflow
+    Agent ARN: arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/abc123
+    Region: us-east-1
+    
+    Logging Information
+    Runtime logs: /aws/bedrock-agentcore/runtimes/abc123-default
+    OTEL logs: /aws/bedrock-agentcore/runtimes/abc123-default/runtime-logs
+    
+    Tail logs with AWS CLI v2:
+      aws logs tail /aws/bedrock-agentcore/runtimes/abc123-default --follow
+      aws logs tail /aws/bedrock-agentcore/runtimes/abc123-default --since 1h
+    
+    Execution Status
+    Starting workflow execution...
+    ⚠ Initial startup may take a few moments
+    ✅ Workflow execution completed successfully!
+    🔗 View in console: https://console.aws.amazon.com/nova-act/...
+    ```
+  </Tab>
+
+  <Tab title="With Payload File">
+    Run with JSON file:
+    
+    ```bash
+    act workflow run --name my-workflow --payload-file payload.json
+    ```
+    
+    Where `payload.json` contains:
+    ```json
+    {
+      "input": "data",
+      "options": {
+        "timeout": 300
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="With Log Streaming">
+    Stream logs during execution:
+    
+    ```bash
+    act workflow run --name my-workflow \
+      --payload '{"input": "test"}' \
+      --tail-logs
+    ```
+    
+    Output includes real-time logs:
+    ```
+    📋 Log tailing enabled - showing logs from /aws/bedrock-agentcore/runtimes/abc123-default
+    ────────────────────────────────────────────────────────────
+    12:34:56 Starting workflow execution
+    12:34:57 Loading browser automation
+    12:34:58 Navigating to target URL
+    12:35:01 Workflow completed
+    ────────────────────────────────────────────────────────────
+    ✅ Workflow execution completed successfully!
+    ```
+  </Tab>
+
+  <Tab title="With Environment Variables">
+    Pass environment variables to the workflow:
+    
+    ```bash
+    act workflow run --name my-workflow --payload '{
+      "AC_HANDLER_ENV": {
+        "NOVA_ACT_API_KEY": "your-api-key-here",
+        "DEBUG": "true"
+      },
+      "input": "data"
+    }'
+    ```
+    
+    These variables are available in your workflow via `os.environ`.
+  </Tab>
+
+  <Tab title="With Custom Timeout">
+    Increase timeout for long-running workflows:
+    
+    ```bash
+    act workflow run --name my-workflow \
+      --payload '{}' \
+      --timeout 14400
+    ```
+    
+    Default timeout is 7200 seconds (2 hours).
+  </Tab>
+</Tabs>
+
+### Log Sources
+
+When using `--tail-logs`, the CLI streams from:
+
+- **Application logs**: stdout/stderr from your workflow
+- **OpenTelemetry logs**: Tracing and instrumentation data
+
+### Notes
+
+- Log streaming continues until workflow completes or you press Ctrl+C
+- Ctrl+C stops tailing but doesn't terminate the workflow
+- Initial startup may take 30-60 seconds for cold starts
+
+---
+
+## list
+
+Show all configured workflows in the current region.
+
+### Syntax
+
+```bash
+act workflow list [OPTIONS]
+```
+
+### Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--region` | No | AWS region to query |
+
+### Examples
+
+<Tabs>
+  <Tab title="List All Workflows">
+    Show workflows in default region:
+    
+    ```bash
+    act workflow list
+    ```
+    
+    Output:
+    ```
+    Workflows in us-east-1
+    
+    my-workflow (2024-11-30)
+    test-workflow (2024-11-29)
+    workflow-20251130-120945 (2024-11-30)
+    
+    Use act workflow show -n <name> for detailed information.
+    ```
+  </Tab>
+
+  <Tab title="List in Specific Region">
+    Show workflows in a specific region:
+    
+    ```bash
+    act workflow list --region us-west-2
+    ```
+  </Tab>
+
+  <Tab title="No Workflows">
+    When no workflows exist:
+    
+    ```bash
+    act workflow list
+    ```
+    
+    Output:
+    ```
+    No workflows found. Use act workflow create to create your first workflow.
+    ```
+  </Tab>
+</Tabs>
+
+### Notes
+
+- State is isolated per region and AWS account
+- Use `show` command for detailed information about a specific workflow
+
+---
+
+## show
+
+Display detailed information about a specific workflow.
+
+### Syntax
+
+```bash
+act workflow show --name <workflow-name> [OPTIONS]
+```
+
+### Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--name, -n` | Yes | Name of the workflow to show |
+| `--region` | No | AWS region to query |
+
+### Examples
+
+<Tabs>
+  <Tab title="Show Workflow Details">
+    Display full workflow information:
+    
+    ```bash
+    act workflow show --name my-workflow
+    ```
+    
+    Output:
+    ```
+    Workflow Details
+    Name: my-workflow
+    Directory: /path/to/source/code
+    Created: 2024-11-30 12:51:39
+    Workflow Definition ARN: arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow
+    Console URL: https://console.aws.amazon.com/nova-act/...
+    AgentCore Deployment: arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/abc123
+    Container Image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/nova-act-cli-default:my-workflow-20241130-125139
+    ```
+  </Tab>
+
+  <Tab title="Show in Specific Region">
+    Query a different region:
+    
+    ```bash
+    act workflow show --name my-workflow --region us-west-2
+    ```
+  </Tab>
+
+  <Tab title="Workflow Not Found">
+    When workflow doesn't exist:
+    
+    ```bash
+    act workflow show --name nonexistent
+    ```
+    
+    Output:
+    ```
+    Workflow 'nonexistent' not found. Use act workflow list to see available workflows.
+    ```
+  </Tab>
+</Tabs>
+
+### Notes
+
+- Shows directory path even if it no longer exists on disk
+- Provides direct links to AWS Console for WorkflowDefinition and AgentCore Runtime
+
+---
+
+## update
+
+Update an existing workflow's WorkflowDefinition ARN.
+
+### Syntax
+
+```bash
+act workflow update --name <workflow-name> --workflow-definition-arn <arn> [OPTIONS]
+```
+
+### Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--name, -n` | Yes | Name of the workflow to update |
+| `--workflow-definition-arn` | Yes | New WorkflowDefinition ARN to associate |
+| `--region` | No | Region for WorkflowDefinition (defaults to config default_region) |
+
+### Examples
+
+<Tabs>
+  <Tab title="Update WorkflowDefinition">
+    Associate a new WorkflowDefinition ARN:
+    
+    ```bash
+    act workflow update --name my-workflow \
+      --workflow-definition-arn arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow
+    ```
+    
+    Output:
+    ```
+    Updated workflow 'my-workflow' WorkflowDefinition ARN in region 'us-east-1':
+      Old: Not set
+      New: arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow
+      Console URL: https://console.aws.amazon.com/nova-act/...
+    
+    ✅ Workflow 'my-workflow' updated successfully!
+    Use act workflow show --name my-workflow for full details.
+    ```
+  </Tab>
+
+  <Tab title="Update in Specific Region">
+    Update workflow in a different region:
+    
+    ```bash
+    act workflow update --name my-workflow \
+      --workflow-definition-arn arn:aws:nova-act:us-west-2:123456789012:workflow-definition/my-workflow \
+      --region us-west-2
+    ```
+  </Tab>
+</Tabs>
+
+### Notes
+
+- Workflow name must match the name in the WorkflowDefinition ARN
+- The CLI validates ARN format automatically
+- To change source directory or entry point, use `deploy` command
+
+---
+
+## delete
+
+Remove a workflow from local configuration.
+
+### Syntax
+
+```bash
+act workflow delete --name <workflow-name> [OPTIONS]
+```
+
+### Options
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--name, -n` | Yes | Name of the workflow to delete |
+| `--region` | No | AWS region (defaults to configured region) |
+| `--force` | No | Skip confirmation prompt |
+
+### Examples
+
+<Tabs>
+  <Tab title="Delete Workflow">
+    Remove a workflow with confirmation:
+    
+    ```bash
+    act workflow delete --name my-workflow
+    ```
+    
+    Output:
+    ```
+    Workflow to delete: my-workflow
+    Target region: us-east-1
+    Action: Remove from configuration
+    Are you sure you want to proceed? [y/N]: y
+    ✅ Removed 'my-workflow' from configuration
+    ```
+  </Tab>
+
+  <Tab title="Force Delete">
+    Skip confirmation prompt:
+    
+    ```bash
+    act workflow delete --name my-workflow --force
+    ```
+    
+    Output:
+    ```
+    Workflow to delete: my-workflow
+    Target region: us-east-1
+    Action: Remove from configuration
+    ✅ Removed 'my-workflow' from configuration
+    ```
+  </Tab>
+
+  <Tab title="Delete in Specific Region">
+    Remove workflow from a specific region:
+    
+    ```bash
+    act workflow delete --name my-workflow --region us-west-2
+    ```
+  </Tab>
+</Tabs>
+
+### Important Notes
+
+<Warning>
+**AWS Resources Are NOT Deleted**
+
+The `delete` command only removes the workflow from local CLI configuration. It does **NOT** delete:
+- AgentCore Runtime
+- WorkflowDefinition
+- ECR images
+- IAM roles
+- S3 buckets
+- CloudWatch Logs
+
+You must manually clean up these AWS resources if needed.
+</Warning>
+
+---
+
+## Global Options
+
+These options apply to all workflow commands:
+
+| Option | Description |
+|--------|-------------|
+| `--profile <name>` | Use specific AWS profile from `~/.aws/credentials` |
+| `--help` | Show command help |
+
+### Using AWS Profiles
+
+```bash
+# Deploy with specific profile
+act workflow --profile development deploy --name my-workflow --source-dir /path/to/code
+
+# Run with specific profile
+act workflow --profile production run --name my-workflow --payload '{}'
+```
+
+<Note>
+The `--profile` option must come **before** the subcommand (deploy, run, etc.).
+</Note>
+
+## Command Cheat Sheet
+
+```bash
+# Create and deploy named workflow
+act workflow create --name my-workflow
+act workflow deploy --name my-workflow --source-dir ./code
+act workflow run --name my-workflow --payload '{}'
+
+# Quick deploy without pre-creation
+act workflow deploy --source-dir ./code
+act workflow run --name workflow-20251130-120945 --payload '{}'
+
+# Manage workflows
+act workflow list
+act workflow show --name my-workflow
+act workflow update --name my-workflow --workflow-definition-arn <arn>
+act workflow delete --name my-workflow
+
+# Deploy with custom options
+act workflow deploy --name my-workflow \
+  --source-dir ./code \
+  --entry-point app.py \
+  --execution-role-arn <arn> \
+  --region us-east-1
+
+# Run with log streaming
+act workflow run --name my-workflow \
+  --payload-file payload.json \
+  --tail-logs \
+  --timeout 14400
+```

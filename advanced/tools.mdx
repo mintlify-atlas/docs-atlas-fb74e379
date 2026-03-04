@@ -1,0 +1,345 @@
+---
+title: Tool integration
+description: Integrate external APIs, functions, and MCP servers with Nova Act
+---
+
+<Note>
+  Tool integration is in preview. APIs and behavior may change in future releases.
+</Note>
+
+Nova Act allows you to integrate external tools beyond the browser, such as API calls, database queries, or custom Python functions. This enables your workflows to access data and perform operations that aren't available through browser automation alone.
+
+## Overview
+
+Tools in Nova Act are Python functions decorated with `@tool` that can be invoked by the agent during workflow execution. When the agent needs information or capabilities beyond what's available in the browser, it can call these tools to accomplish the task.
+
+### Use cases
+
+- **Data providers**: Fetch data from databases or APIs
+- **Authentication**: Retrieve credentials from secure storage
+- **Calculations**: Perform complex computations
+- **External systems**: Integrate with CRM, billing, or other business systems
+
+## Creating tools
+
+Use the `@tool` decorator to make any Python function available as a tool:
+
+```python
+from nova_act import NovaAct, tool
+
+@tool
+def get_booking_reference(customer_id: str) -> str:
+    """Retrieve booking reference for a customer."""
+    # Query your database or API
+    return f"BOOK-{customer_id}-12345"
+
+with NovaAct(
+    starting_page="https://example.com",
+    tools=[get_booking_reference]
+) as nova:
+    nova.act("Enter the booking reference for customer CUS123")
+```
+
+The agent will automatically call `get_booking_reference("CUS123")` when it needs the booking reference.
+
+### Tool requirements
+
+<Info>
+  Tools should have clear docstrings and type hints. The agent uses these to understand when and how to call the tool.
+</Info>
+
+- **Type hints**: Add type annotations for all parameters and return values
+- **Docstrings**: Describe what the tool does and when to use it
+- **Pure functions**: Tools should be deterministic when possible
+- **Error handling**: Handle exceptions gracefully and return meaningful error messages
+
+## Tool examples
+
+### Database query tool
+
+```python
+from typing import Optional
+import sqlite3
+
+@tool
+def query_customer_data(customer_id: str) -> Optional[dict]:
+    """Query customer information from the database.
+    
+    Args:
+        customer_id: The unique customer identifier
+        
+    Returns:
+        Customer data including name, email, and preferences,
+        or None if customer not found
+    """
+    conn = sqlite3.connect('customers.db')
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "SELECT name, email, preferences FROM customers WHERE id = ?",
+        (customer_id,)
+    )
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return {
+            "name": row[0],
+            "email": row[1],
+            "preferences": row[2]
+        }
+    return None
+```
+
+### API integration tool
+
+```python
+import requests
+from typing import List
+
+@tool
+def get_flight_prices(origin: str, destination: str, date: str) -> List[dict]:
+    """Fetch flight prices from external API.
+    
+    Args:
+        origin: Origin airport code (e.g., 'BOS')
+        destination: Destination airport code (e.g., 'SEA')
+        date: Flight date in YYYY-MM-DD format
+        
+    Returns:
+        List of flights with prices and times
+    """
+    response = requests.get(
+        "https://api.example.com/flights",
+        params={"from": origin, "to": destination, "date": date}
+    )
+    response.raise_for_status()
+    return response.json()["flights"]
+```
+
+### Credentials provider tool
+
+```python
+import os
+from typing import Dict
+
+@tool
+def get_test_credentials() -> Dict[str, str]:
+    """Retrieve test account credentials from environment.
+    
+    Returns:
+        Dictionary with 'username' and 'password' keys
+    """
+    return {
+        "username": os.getenv("TEST_USERNAME", "test@example.com"),
+        "password": os.getenv("TEST_PASSWORD", "test-password-123")
+    }
+
+with NovaAct(
+    starting_page="https://example.com/login",
+    tools=[get_test_credentials]
+) as nova:
+    nova.act("Log in using the test credentials")
+```
+
+## Complete workflow example
+
+Here's a complete example that books a flight using data from multiple tools:
+
+```python
+from nova_act import NovaAct, tool
+from datetime import datetime, timedelta
+
+@tool
+def get_preferred_airline(customer_id: str) -> str:
+    """Get customer's preferred airline."""
+    # Query from database
+    return "United Airlines"
+
+@tool
+def get_travel_dates(trip_type: str) -> dict:
+    """Get standard travel dates for different trip types."""
+    today = datetime.now()
+    
+    if trip_type == "weekend":
+        return {
+            "departure": (today + timedelta(days=5)).strftime("%Y-%m-%d"),
+            "return": (today + timedelta(days=7)).strftime("%Y-%m-%d")
+        }
+    elif trip_type == "business":
+        return {
+            "departure": (today + timedelta(days=14)).strftime("%Y-%m-%d"),
+            "return": (today + timedelta(days=16)).strftime("%Y-%m-%d")
+        }
+
+@tool
+def get_booking_budget(trip_type: str) -> int:
+    """Get approved budget for trip type."""
+    budgets = {
+        "weekend": 500,
+        "business": 1200,
+        "vacation": 800
+    }
+    return budgets.get(trip_type, 300)
+
+with NovaAct(
+    starting_page="https://flights.example.com",
+    tools=[get_preferred_airline, get_travel_dates, get_booking_budget]
+) as nova:
+    result = nova.act_get(
+        "Book a business trip flight from Boston to Seattle. "
+        "Use the customer's preferred airline and stay within budget. "
+        "Return the confirmation number."
+    )
+    
+    print(f"Booking confirmed: {result.response}")
+```
+
+## MCP (Model Context Protocol) integration
+
+Nova Act supports tools from MCP servers using the [Strands MCP Client](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/tools/mcp-tools/).
+
+### Using MCP tools
+
+```python
+from mcp import StdioServerParameters, stdio_client
+from nova_act import NovaAct
+from strands.tools.mcp import MCPClient
+
+with MCPClient(
+    lambda: stdio_client(
+        StdioServerParameters(
+            command="uvx",
+            args=["awslabs.aws-documentation-mcp-server@latest"]
+        )
+    )
+) as aws_docs_client:
+    with NovaAct(
+        starting_page="https://aws.amazon.com/",
+        tools=aws_docs_client.list_tools_sync()
+    ) as nova:
+        result = nova.act_get(
+            "Use the 'search_documentation' tool to tell me about "
+            "Amazon Bedrock and how to use it with Python. "
+            "Ignore the web browser; do not click, scroll, type, etc."
+        )
+        print(result.response)
+```
+
+### Available MCP servers
+
+Many MCP servers are available for common integrations:
+
+- **AWS Documentation**: Search AWS documentation
+- **GitHub**: Access repository data and issues
+- **File system**: Read and write local files
+- **Database**: Query SQL databases
+- **Web search**: Search the internet
+
+See the [MCP server directory](https://github.com/modelcontextprotocol/servers) for more options.
+
+## Best practices
+
+### Tool design
+
+<Tip>
+  Design tools to be single-purpose and composable. It's better to have multiple small tools than one large multi-purpose tool.
+</Tip>
+
+- **Single responsibility**: Each tool should do one thing well
+- **Clear naming**: Use descriptive function names that indicate what the tool does
+- **Comprehensive docs**: Write detailed docstrings explaining parameters and return values
+- **Type safety**: Use type hints for all parameters and return values
+
+### Error handling
+
+```python
+@tool
+def fetch_user_data(user_id: str) -> dict:
+    """Fetch user data from API with error handling."""
+    try:
+        response = requests.get(f"https://api.example.com/users/{user_id}")
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        # Return error info that the agent can understand
+        return {
+            "error": str(e),
+            "message": f"Failed to fetch data for user {user_id}"
+        }
+```
+
+### Security considerations
+
+<Warning>
+  Never expose sensitive operations without proper authorization checks in your tools.
+</Warning>
+
+- **Validate inputs**: Always validate and sanitize tool inputs
+- **Least privilege**: Tools should have minimal permissions needed
+- **Audit logging**: Log tool invocations for security audits
+- **Rate limiting**: Implement rate limits for external API calls
+
+### Testing tools
+
+Test your tools independently before using them in workflows:
+
+```python
+# Test tool directly
+result = get_booking_reference("CUS123")
+assert result.startswith("BOOK-")
+
+# Test with NovaAct
+with NovaAct(
+    starting_page="https://example.com",
+    tools=[get_booking_reference],
+    headless=True  # Faster for testing
+) as nova:
+    result = nova.act("Enter booking reference for CUS123")
+    assert "BOOK-CUS123" in result.metadata.actions
+```
+
+## Troubleshooting
+
+<Accordion title="Tool not being called">
+  Ensure:
+  - Tool has clear docstring describing when to use it
+  - Type hints are present for all parameters
+  - Tool name is descriptive
+  - Tool is included in the `tools` list
+  - Your prompt mentions the need for external data
+</Accordion>
+
+<Accordion title="Tool returning incorrect data">
+  Check:
+  - Tool implementation logic
+  - Parameter types match what the agent is passing
+  - Return type is serializable (use dicts, not custom objects)
+  - Error handling is properly returning error info
+</Accordion>
+
+<Accordion title="Performance issues with tools">
+  Consider:
+  - Caching results for expensive operations
+  - Using async operations for I/O-bound tools
+  - Implementing timeouts for external API calls
+  - Reducing data returned to only what's needed
+</Accordion>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Strands integration" icon="link" href="https://docs.aws.amazon.com/nova-act/latest/userguide/strands.html">
+    Learn about Strands agent framework integration
+  </Card>
+  <Card title="Code samples" icon="code" href="https://github.com/amazon-agi-labs/nova-act-samples">
+    See complete tool integration examples
+  </Card>
+  <Card title="MCP servers" icon="server" href="https://github.com/modelcontextprotocol/servers">
+    Browse available MCP servers
+  </Card>
+  <Card title="API reference" icon="book" href="/api/tools">
+    @tool decorator API documentation
+  </Card>
+</CardGroup>

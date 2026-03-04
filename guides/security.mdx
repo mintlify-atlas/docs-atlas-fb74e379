@@ -1,0 +1,460 @@
+---
+title: 'Security'
+description: 'Configure security options, file access controls, and guardrails'
+---
+
+## Overview
+
+Nova Act is initialized with secure defaults to protect against unintended file access and malicious actions. You can relax these restrictions based on your use case through `SecurityOptions` and state guardrails.
+
+## SecurityOptions
+
+The `SecurityOptions` class controls file access permissions:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+security_options = SecurityOptions(
+    allowed_file_open_paths=[],  # No file:// navigation (default)
+    allowed_file_upload_paths=[],  # No file uploads (default)
+)
+
+with NovaAct(
+    starting_page="https://example.com",
+    security_options=security_options
+) as nova:
+    nova.act("Do something safely")
+```
+
+### Allowed File Open Paths
+
+Control which local files the browser can navigate to using `file://` URLs:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+# Allow specific directory
+security_options = SecurityOptions(
+    allowed_file_open_paths=["/home/nova-act/shared/*"]
+)
+
+with NovaAct(
+    starting_page="file:///home/nova-act/shared/index.html",
+    security_options=security_options
+) as nova:
+    nova.act("Navigate to the reports page")
+```
+
+**Pattern Examples:**
+
+<CodeGroup>
+```python Specific Directory
+SecurityOptions(allowed_file_open_paths=["/home/nova-act/shared/*"])
+```
+
+```python Specific File
+SecurityOptions(allowed_file_open_paths=["/home/nova-act/shared/file.txt"])
+```
+
+```python All Paths (Not Recommended)
+SecurityOptions(allowed_file_open_paths=["*"])
+```
+
+```python Disabled (Default)
+SecurityOptions(allowed_file_open_paths=[])
+```
+</CodeGroup>
+
+### Allowed File Upload Paths
+
+Control which local files can be uploaded to websites:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+upload_filename = "/upload_path/upload_me.pdf"
+
+security_options = SecurityOptions(
+    allowed_file_upload_paths=["/upload_path/*"]
+)
+
+with NovaAct(
+    starting_page="https://example.com/upload",
+    security_options=security_options
+) as nova:
+    nova.act(f"upload {upload_filename} using the upload receipt button")
+```
+
+<Warning>
+**Important security note:** Pick `allowed_file_upload_paths` narrowly to minimize Nova Act's filesystem access and prevent data exfiltration by malicious websites or content.
+</Warning>
+
+**Pattern Examples:**
+
+<CodeGroup>
+```python Specific Directory
+SecurityOptions(allowed_file_upload_paths=["/home/nova-act/uploads/*"])
+```
+
+```python Multiple Directories
+SecurityOptions(allowed_file_upload_paths=[
+    "/home/nova-act/uploads/*",
+    "/home/nova-act/documents/*"
+])
+```
+
+```python Specific File Type
+SecurityOptions(allowed_file_upload_paths=["/home/nova-act/uploads/*.pdf"])
+```
+
+```python All Paths (Not Recommended)
+SecurityOptions(allowed_file_upload_paths=["*"])
+```
+
+```python Disabled (Default)
+SecurityOptions(allowed_file_upload_paths=[])
+```
+</CodeGroup>
+
+## State Guardrails
+
+State guardrails allow you to control which URLs the agent can visit during execution. They run after each observation and before invoking the next step.
+
+### Basic URL Guardrail
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+from urllib.parse import urlparse
+import fnmatch
+
+def url_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    """Block access to unauthorized domains."""
+    hostname = urlparse(state.browser_url).hostname
+    
+    if not hostname:
+        return GuardrailDecision.BLOCK
+    
+    # Define allowed domains
+    allowed = ["example.com", "*.example.com", "trusted-site.com"]
+    
+    if any(fnmatch.fnmatch(hostname, pattern) for pattern in allowed):
+        return GuardrailDecision.PASS
+    
+    return GuardrailDecision.BLOCK
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=url_guardrail
+) as nova:
+    # Agent can only visit allowed domains
+    nova.act("Navigate to the homepage")
+```
+
+### Block-list Guardrail
+
+```python
+def blocklist_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    """Block specific domains while allowing all others."""
+    hostname = urlparse(state.browser_url).hostname
+    
+    if not hostname:
+        return GuardrailDecision.BLOCK
+    
+    # Define blocked domains
+    blocked = [
+        "*.blocked-domain.com",
+        "*.another-blocked-domain.com",
+        "malicious-site.com"
+    ]
+    
+    if any(fnmatch.fnmatch(hostname, pattern) for pattern in blocked):
+        return GuardrailDecision.BLOCK
+    
+    return GuardrailDecision.PASS
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=blocklist_guardrail
+) as nova:
+    nova.act("Search for information")
+```
+
+### Allow-list Guardrail
+
+```python
+def allowlist_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    """Only allow specific approved domains."""
+    hostname = urlparse(state.browser_url).hostname
+    
+    if not hostname:
+        return GuardrailDecision.BLOCK
+    
+    # Define allowed domains
+    allowed = [
+        "example.com",
+        "*.example.com",
+        "trusted-partner.com"
+    ]
+    
+    if any(fnmatch.fnmatch(hostname, pattern) for pattern in allowed):
+        return GuardrailDecision.PASS
+    
+    return GuardrailDecision.BLOCK
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=allowlist_guardrail
+) as nova:
+    nova.act("Search for products")
+```
+
+### Handling Guardrail Errors
+
+When a guardrail blocks execution, Nova Act raises `ActStateGuardrailError`:
+
+```python
+from nova_act import NovaAct, ActStateGuardrailError
+
+try:
+    with NovaAct(
+        starting_page="https://example.com",
+        state_guardrail=my_guardrail
+    ) as nova:
+        nova.act("Navigate to various pages")
+except ActStateGuardrailError as e:
+    print(f"Agent attempted to access blocked URL: {e}")
+    # Handle the blocked navigation
+```
+
+## Password and Sensitive Data Handling
+
+### Never Include Passwords in Prompts
+
+Use Playwright APIs to enter sensitive data directly:
+
+```python
+from getpass import getpass
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com/login") as nova:
+    # Enter username via prompt (safe)
+    nova.act("enter username 'janedoe' and click on the password field")
+    
+    # Collect password securely and type it via Playwright
+    # This does NOT send the password over the network
+    password = getpass("Enter password: ")
+    nova.page.keyboard.type(password)
+    
+    # Continue with login
+    nova.act("click the sign in button")
+```
+
+### Environment Variables for Secrets
+
+```python
+import os
+from nova_act import NovaAct
+
+# Load from environment
+api_key = os.environ.get("API_KEY")
+credentials = os.environ.get("CREDENTIALS")
+
+with NovaAct(starting_page="https://api.example.com") as nova:
+    # Use credentials without exposing in prompts
+    nova.page.goto(f"https://api.example.com?key={api_key}")
+```
+
+<Warning>
+**Security considerations:**
+
+1. Passwords typed via Playwright may still appear in screenshots if visible on screen
+2. If you instruct Nova Act to take an action on a screen displaying sensitive information, that information will be included in screenshots
+3. On Linux systems without a system-level keyring (Libsecret, KWallet), Chrome saves passwords in plaintext within the profile directory
+</Warning>
+
+## Prompt Injection Protection
+
+Nova Act may encounter commands in third-party website content (user-generated posts, search results, etc.). These "prompt injections" can cause unexpected behavior.
+
+### Mitigation Strategies
+
+<AccordionGroup>
+  <Accordion title="Use State Guardrails" icon="shield-check">
+    Prevent navigation to untrusted domains:
+    
+    ```python
+    def trusted_only_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+        hostname = urlparse(state.browser_url).hostname
+        trusted_domains = ["example.com", "trusted-site.com"]
+        
+        if hostname in trusted_domains:
+            return GuardrailDecision.PASS
+        return GuardrailDecision.BLOCK
+    ```
+  </Accordion>
+
+  <Accordion title="Be Specific in Prompts" icon="bullseye">
+    Provide clear, explicit instructions:
+    
+    ```python
+    # Good: Specific and direct
+    nova.act("Click the blue 'Submit' button at the bottom of the form")
+    
+    # Bad: Vague, leaves room for interpretation
+    nova.act("Submit the form")
+    ```
+  </Accordion>
+
+  <Accordion title="Monitor and Review" icon="eye">
+    Always review agent actions, especially when processing user-contributed content:
+    
+    ```python
+    # Log all actions for review
+    result = nova.act("Search for products")
+    log_action(result.metadata)
+    ```
+  </Accordion>
+
+  <Accordion title="Use Extraction Schemas" icon="table">
+    When extracting data, use strict schemas to validate output:
+    
+    ```python
+    from pydantic import BaseModel
+    
+    class ProductInfo(BaseModel):
+        name: str
+        price: float
+    
+    result = nova.act_get(
+        "Get product name and price",
+        schema=ProductInfo.model_json_schema()
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Principle of Least Privilege" icon="lock">
+    Only grant the minimum permissions needed:
+    
+    ```python
+    # Good: Specific paths only
+    SecurityOptions(
+        allowed_file_upload_paths=["/uploads/receipts/*"]
+    )
+    
+    # Bad: All paths
+    SecurityOptions(
+        allowed_file_upload_paths=["*"]
+    )
+    ```
+  </Card>
+
+  <Card title="Regular Security Audits" icon="magnifying-glass">
+    Periodically review:
+    - Allowed file paths
+    - Guardrail configurations
+    - Access logs
+    - Workflow prompts
+  </Card>
+
+  <Card title="Separate Environments" icon="layer-group">
+    Use different security configurations for dev/prod:
+    
+    ```python
+    if ENV == "production":
+        security_options = SecurityOptions(
+            allowed_file_upload_paths=["/prod/uploads/*"]
+        )
+    else:
+        security_options = SecurityOptions(
+            allowed_file_upload_paths=["*"]  # More permissive for dev
+        )
+    ```
+  </Card>
+
+  <Card title="Log Security Events" icon="clipboard-list">
+    Track when guardrails block actions:
+    
+    ```python
+    try:
+        nova.act("Navigate somewhere")
+    except ActStateGuardrailError as e:
+        security_logger.warning(f"Blocked: {e}")
+        alert_security_team(e)
+    ```
+  </Card>
+</CardGroup>
+
+## Common Security Patterns
+
+### Sandboxed File Operations
+
+```python
+import tempfile
+import os
+from nova_act import NovaAct, SecurityOptions
+
+# Create temporary sandbox directory
+with tempfile.TemporaryDirectory() as sandbox_dir:
+    # Only allow access to sandbox
+    security_options = SecurityOptions(
+        allowed_file_upload_paths=[f"{sandbox_dir}/*"],
+        allowed_file_open_paths=[f"{sandbox_dir}/*"]
+    )
+    
+    # Copy trusted files to sandbox
+    os.system(f"cp /trusted/source/* {sandbox_dir}/")
+    
+    with NovaAct(
+        starting_page="https://example.com",
+        security_options=security_options
+    ) as nova:
+        nova.act(f"Upload the file from {sandbox_dir}/data.csv")
+    
+    # Sandbox is automatically cleaned up after block
+```
+
+### Multi-layer Guardrails
+
+```python
+def multi_layer_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    """Apply multiple security checks."""
+    hostname = urlparse(state.browser_url).hostname
+    
+    # Layer 1: Check blocklist
+    if is_in_blocklist(hostname):
+        log_security_event("blocklist", hostname)
+        return GuardrailDecision.BLOCK
+    
+    # Layer 2: Check domain age/reputation
+    if not is_trusted_domain(hostname):
+        log_security_event("untrusted", hostname)
+        return GuardrailDecision.BLOCK
+    
+    # Layer 3: Check SSL certificate
+    if not has_valid_ssl(state.browser_url):
+        log_security_event("invalid_ssl", hostname)
+        return GuardrailDecision.BLOCK
+    
+    return GuardrailDecision.PASS
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="File Operations" icon="file" href="/guides/file-operations">
+    Securely handle file uploads and downloads
+  </Card>
+  <Card title="Authentication" icon="key" href="/guides/authentication-cookies">
+    Manage credentials and authenticated sessions
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle security-related errors gracefully
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/guides/deployment">
+    Deploy secure workflows to AWS
+  </Card>
+</CardGroup>

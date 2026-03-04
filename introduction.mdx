@@ -1,0 +1,155 @@
+---
+title: Introduction
+description: Welcome to Amazon Nova Act documentation
+---
+
+Amazon Nova Act is a Python SDK for building and deploying AI agents that automate browser-based workflows at scale. Define your workflows using natural language prompts combined with Python code, and let Nova Act handle the complexity of browser automation.
+
+## What is Amazon Nova Act?
+
+Amazon Nova Act is available as an AWS service to build and manage fleets of reliable AI agents for automating production UI workflows at scale. Nova Act completes repetitive UI workflows in the browser and escalates to a human supervisor when appropriate.
+
+<CardGroup cols={2}>
+  <Card title="AI-powered automation" icon="robot">
+    Use natural language to control browsers and complete complex tasks
+  </Card>
+  <Card title="Production-ready" icon="cloud">
+    Deploy workflows to AWS AgentCore Runtime for scalable automation
+  </Card>
+  <Card title="Human-in-the-loop" icon="users">
+    Enable human supervision with approval workflows and UI takeover
+  </Card>
+  <Card title="Structured extraction" icon="database">
+    Extract typed data from web pages using Pydantic schemas
+  </Card>
+</CardGroup>
+
+## Key features
+
+### Browser automation with natural language
+
+Control web browsers using AI-powered agents that understand natural language instructions. No need to write complex selectors or wait conditions.
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.act("Find flights from Boston to Seattle on Feb 22nd")
+```
+
+### Workflow orchestration
+
+Combine Python code with natural language prompts to build sophisticated automation workflows.
+
+```python
+from nova_act import NovaAct, Workflow
+
+@workflow(
+    workflow_definition_name="flight-booking",
+    model_id="nova-act-latest"
+)
+def book_flight():
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Search for flights from Boston to Seattle")
+        nova.act("Select the cheapest option")
+        price = nova.act_get("Return the price").response
+        return price
+```
+
+### Data extraction
+
+Extract structured data from web pages using Pydantic schemas for type-safe responses.
+
+```python
+from pydantic import BaseModel
+
+class FlightData(BaseModel):
+    price: float
+    departure_time: str
+
+result = nova.act_get(
+    "Find the cheapest flight and return its details",
+    schema=FlightData.model_json_schema()
+)
+flight = FlightData.model_validate(result.parsed_response)
+```
+
+### Human-in-the-loop
+
+Enable human supervision for approval workflows, CAPTCHA solving, and complex decision-making.
+
+```python
+from nova_act.tools.human.interface.human_input_callback import (
+    HumanInputCallbacksBase, ApprovalResponse
+)
+
+class MyCallbacks(HumanInputCallbacksBase):
+    def approve(self, message: str) -> ApprovalResponse:
+        # Show approval UI to human
+        return ApprovalResponse(approved=True)
+
+with NovaAct(human_input_callbacks=MyCallbacks()) as nova:
+    nova.act("Complete the purchase")
+```
+
+## Use cases
+
+<CardGroup cols={2}>
+  <Card title="Quality assurance" icon="check-circle">
+    Automate testing of web applications and user workflows
+  </Card>
+  <Card title="Form filling" icon="file-alt">
+    Fill out repetitive forms with data from various sources
+  </Card>
+  <Card title="Data extraction" icon="download">
+    Extract structured data from websites at scale
+  </Card>
+  <Card title="E-commerce automation" icon="shopping-cart">
+    Automate product searches, comparisons, and purchases
+  </Card>
+</CardGroup>
+
+## Getting started
+
+<Steps>
+  <Step title="Install the SDK">
+    ```bash
+    pip install nova-act
+    ```
+  </Step>
+  
+  <Step title="Set up authentication">
+    Get your API key from [nova.amazon.com/act](https://nova.amazon.com/act)
+    ```bash
+    export NOVA_ACT_API_KEY="your_api_key"
+    ```
+  </Step>
+  
+  <Step title="Run your first workflow">
+    See the [quickstart guide](/quickstart) for a complete example
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running in minutes
+  </Card>
+  <Card title="Core concepts" icon="book" href="/concepts/workflows">
+    Learn about workflows and browser automation
+  </Card>
+  <Card title="API reference" icon="code" href="/api/novaact">
+    Explore the complete API documentation
+  </Card>
+  <Card title="Deployment guide" icon="cloud-arrow-up" href="/guides/deployment">
+    Deploy to production with AWS
+  </Card>
+</CardGroup>
+
+## Learn more
+
+- [Nova Act on AWS](https://aws.amazon.com/nova/act/)
+- [GitHub repository](https://github.com/aws/nova-act)
+- [Code samples](https://github.com/amazon-agi-labs/nova-act-samples)
+- [AWS User Guide](https://docs.aws.amazon.com/nova-act/)

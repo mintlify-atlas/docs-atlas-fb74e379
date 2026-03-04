@@ -1,0 +1,362 @@
+---
+title: 'Browser Automation'
+description: 'How Nova Act controls browsers, navigates pages, and executes web automation tasks'
+---
+
+## Overview
+
+Nova Act uses browser automation to execute tasks described in natural language. Under the hood, it leverages Playwright to control Chrome/Chromium browsers and interact with web pages.
+
+## How `act()` Works
+
+The `act()` method is the primary interface for browser automation in Nova Act. It takes a natural language prompt and executes the necessary browser actions to complete the task.
+
+### Basic Usage
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://nova.amazon.com/act/gym/next-dot/search") as nova:
+    nova.act("Find flights from Boston to Wolf on Feb 22nd")
+```
+
+### The Act Lifecycle
+
+When you call `act()`, the following happens:
+
+1. **Observation**: Nova Act captures a screenshot of the current page state
+2. **Planning**: The model analyzes the observation and decides what actions to take
+3. **Actuation**: Browser actions (click, type, scroll, etc.) are executed
+4. **Iteration**: Steps 1-3 repeat until the task is complete or max steps is reached
+
+<Info>
+By default, `act()` will take up to 30 steps before giving up on a task. You can configure this with the `max_steps` parameter.
+</Info>
+
+## Browser Control
+
+### Starting a Browser Session
+
+Nova Act automatically launches and manages a browser session:
+
+```python
+from nova_act import NovaAct
+
+# Start in headed mode (browser window visible)
+nova = NovaAct(starting_page="https://example.com")
+nova.start()
+
+# Or use as a context manager
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.act("Click the login button")
+```
+
+### Headless Mode
+
+Run the browser without a visible window:
+
+```python
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True
+) as nova:
+    nova.act("Extract the page title")
+```
+
+### Browser Configuration
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(
+    starting_page="https://example.com",
+    headless=False,
+    screen_width=1600,
+    screen_height=900,
+    user_agent="MyUserAgent/2.7",
+    chrome_channel="chrome",  # or "chromium", "chrome-beta", "msedge"
+) as nova:
+    nova.act("Navigate to the products page")
+```
+
+<Note>
+Nova Act is optimized for screen resolutions between `864×1296` and `1536×2304`. Performance may degrade outside this range.
+</Note>
+
+## Page Navigation
+
+### Using `go_to_url()`
+
+Navigate to a specific URL programmatically:
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    # Navigate to a new page
+    nova.go_to_url("https://another-site.com")
+    nova.act("Click the search button")
+```
+
+<Warning>
+**Use `nova.go_to_url()` instead of `nova.page.goto()`**
+
+The Playwright `Page.goto()` method has a default timeout of 30 seconds and may not wait for the page to fully load. Nova Act's `go_to_url()` provides more reliable navigation with better page load handling.
+</Warning>
+
+### Configuring Page Load Timeout
+
+```python
+with NovaAct(
+    starting_page="https://slow-loading-site.com",
+    go_to_url_timeout=120  # Wait up to 120 seconds
+) as nova:
+    nova.go_to_url("https://another-slow-site.com")
+```
+
+## Accessing Playwright API
+
+Nova Act exposes the underlying Playwright page object for advanced use cases:
+
+### Current Page
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    # Get the current page
+    page = nova.page
+    
+    # Use Playwright API directly
+    page.keyboard.type("sensitive data")
+    content = page.content()
+```
+
+### Multiple Pages
+
+Access all open pages in the browser context:
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    # Get all pages
+    pages = nova.pages
+    print(f"Total pages open: {len(pages)}")
+    
+    # Get a specific page by index
+    first_page = nova.get_page(0)
+    current_page = nova.get_page(-1)  # Default: current page
+```
+
+## Browser Actions
+
+Nova Act can perform all standard browser actions:
+
+### Navigation Actions
+
+```python
+nova.act("Navigate to the routes tab")
+nova.act("Go back to the previous page")
+nova.act("Refresh the page")
+```
+
+### Clicking
+
+```python
+nova.act("Click the submit button")
+nova.act("Click on the link that says 'Learn More'")
+nova.act("Right-click on the image")
+```
+
+### Typing
+
+```python
+nova.act("Type 'search query' into the search box")
+nova.act("Enter 'user@example.com' in the email field")
+```
+
+### Scrolling
+
+```python
+nova.act("Scroll down once")
+nova.act("Scroll to the bottom of the page")
+nova.act("Scroll up to the top")
+```
+
+### Forms
+
+```python
+nova.act("Fill in the name field with 'John Doe'")
+nova.act("Select 'United States' from the country dropdown")
+nova.act("Check the terms and conditions checkbox")
+nova.act("Submit the form")
+```
+
+## Search Operations
+
+```python
+nova.go_to_url("https://example.com")
+nova.act("search for cats")
+
+# If the model has trouble finding the search button
+nova.act("search for cats. type enter to initiate the search.")
+```
+
+## File Operations
+
+### File Upload
+
+First, allow Nova Act to access files:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+upload_filename = "/upload_path/upload_me.pdf"
+
+with NovaAct(
+    starting_page="https://example.com/upload",
+    security_options=SecurityOptions(
+        allowed_file_upload_paths=["/upload_path/*"]
+    )
+) as nova:
+    nova.act(f"upload {upload_filename} using the upload receipt button")
+```
+
+<Warning>
+**Security Note**: Pick `allowed_file_upload_paths` narrowly to minimize Nova Act's access to your filesystem to avoid data exfiltration by malicious sites or web content.
+</Warning>
+
+### File Download
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    # Capture downloads with Playwright
+    with nova.page.expect_download() as download_info:
+        nova.act("click on the download button")
+    
+    # Get temp path
+    print(f"Downloaded file {download_info.value.path()}")
+    
+    # Save permanently
+    download_info.value.save_as("my_downloaded_file.pdf")
+```
+
+## Browser Dialogs
+
+Handle native browser dialogs (alert, confirm, prompt):
+
+```python
+def handle_dialog(dialog):
+    print(f"Dialog message: {dialog.message}")
+    dialog.accept()  # Accept and dismiss the dialog
+
+# Register the handler
+nova.page.on("dialog", handle_dialog)
+
+# Trigger the dialog
+nova.act("Do something that results in a dialog")
+
+# Unregister the handler
+nova.page.remove_listener("dialog", handle_dialog)
+```
+
+## Proxy Configuration
+
+Route traffic through a proxy server:
+
+```python
+# Basic proxy
+proxy_config = {
+    "server": "http://proxy.example.com:8080"
+}
+
+# Proxy with authentication
+proxy_config = {
+    "server": "http://proxy.example.com:8080",
+    "username": "myusername",
+    "password": "mypassword"
+}
+
+nova = NovaAct(
+    starting_page="https://example.com",
+    proxy=proxy_config
+)
+```
+
+## Session State Management
+
+### Persistent Browser State
+
+Preserve cookies and authentication across sessions:
+
+```python
+import os
+from nova_act import NovaAct
+
+user_data_dir = "/tmp/my-browser-profile"
+os.makedirs(user_data_dir, exist_ok=True)
+
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir=user_data_dir,
+    clone_user_data_dir=False
+) as nova:
+    input("Log into your websites, then press enter...")
+    # Add your nova.act() statements here
+
+print(f"User data dir saved to {user_data_dir}")
+```
+
+<Note>
+If you're running multiple `NovaAct` instances in parallel, each must have its own `user_data_dir`. Use `clone_user_data_dir=True` or omit the `user_data_dir` parameter entirely.
+</Note>
+
+## Viewing Headless Sessions
+
+View what's happening in a headless browser:
+
+1. Set the remote debugging port:
+```bash
+export NOVA_ACT_BROWSER_ARGS="--remote-debugging-port=9222"
+```
+
+2. Start your workflow with `headless=True`
+
+3. Open a local browser to `http://localhost:9222/json`
+
+4. Find the item of type `page` and copy its `devtoolsFrontendUrl` into your browser
+
+You can now observe and interact with the headless browser session.
+
+## Best Practices
+
+### 1. Let Nova Act Control the Browser
+
+<Warning>
+Don't interact with the browser when an `act()` is running because the underlying model will not know what you've changed!
+</Warning>
+
+### 2. Use Appropriate Screen Sizes
+
+Stick to the recommended resolution range (864×1296 to 1536×2304) for best performance.
+
+### 3. Handle Slow-Loading Pages
+
+Use `go_to_url_timeout` for pages that take longer to load:
+
+```python
+with NovaAct(
+    starting_page="https://slow-site.com",
+    go_to_url_timeout=60
+) as nova:
+    # Page will wait up to 60 seconds to load
+    pass
+```
+
+### 4. Security First
+
+Always use `SecurityOptions` to restrict file access:
+
+```python
+from nova_act import SecurityOptions
+
+security_options = SecurityOptions(
+    allowed_file_upload_paths=["/safe/path/*"],
+    allowed_file_open_paths=["/safe/path/*"]
+)
+```

@@ -1,0 +1,381 @@
+---
+title: Proxy configuration
+description: Route browser traffic through proxy servers with authentication
+---
+
+Nova Act supports proxy configurations for browser sessions. This is useful when you need to route traffic through corporate proxies, use specific IP addresses, or access region-restricted content.
+
+## Basic proxy setup
+
+Configure a proxy server without authentication:
+
+```python
+from nova_act import NovaAct
+
+proxy_config = {
+    "server": "http://proxy.example.com:8080"
+}
+
+with NovaAct(
+    starting_page="https://example.com",
+    proxy=proxy_config
+) as nova:
+    nova.act("Navigate to the products page")
+```
+
+## Proxy with authentication
+
+If your proxy requires authentication, include credentials:
+
+```python
+proxy_config = {
+    "server": "http://proxy.example.com:8080",
+    "username": "myusername",
+    "password": "mypassword"
+}
+
+with NovaAct(
+    starting_page="https://example.com",
+    proxy=proxy_config
+) as nova:
+    nova.act("Complete the task")
+```
+
+<Warning>
+  Never hardcode proxy credentials in your code. Use environment variables or secure secret management systems.
+</Warning>
+
+## Configuration options
+
+<ParamField path="server" type="str" required>
+  The proxy server URL. Must start with `http://` or `https://`.
+  
+  Example: `http://proxy.example.com:8080`
+</ParamField>
+
+<ParamField path="username" type="str">
+  Username for proxy authentication (optional)
+</ParamField>
+
+<ParamField path="password" type="str">
+  Password for proxy authentication (optional)
+</ParamField>
+
+<ParamField path="bypass" type="str">
+  Comma-separated domains to bypass the proxy (optional)
+  
+  Example: `"*.example.com,localhost,127.0.0.1"`
+</ParamField>
+
+## Using environment variables
+
+<Tip>
+  Store proxy credentials in environment variables for better security.
+</Tip>
+
+```python
+import os
+
+proxy_config = {
+    "server": os.getenv("PROXY_SERVER"),
+    "username": os.getenv("PROXY_USERNAME"),
+    "password": os.getenv("PROXY_PASSWORD")
+}
+
+with NovaAct(
+    starting_page="https://example.com",
+    proxy=proxy_config
+) as nova:
+    nova.act("Complete the task")
+```
+
+Set the environment variables before running:
+
+```bash
+export PROXY_SERVER="http://proxy.example.com:8080"
+export PROXY_USERNAME="myusername"
+export PROXY_PASSWORD="mypassword"
+
+python your_workflow.py
+```
+
+## SOCKS proxy
+
+Nova Act supports SOCKS proxies:
+
+```python
+proxy_config = {
+    "server": "socks5://proxy.example.com:1080",
+    "username": "myusername",
+    "password": "mypassword"
+}
+```
+
+Supported protocols:
+- `http://` - HTTP proxy
+- `https://` - HTTPS proxy
+- `socks5://` - SOCKS5 proxy
+- `socks4://` - SOCKS4 proxy
+
+## Bypassing the proxy
+
+Exclude specific domains from using the proxy:
+
+```python
+proxy_config = {
+    "server": "http://proxy.example.com:8080",
+    "bypass": "localhost,127.0.0.1,*.internal.company.com"
+}
+
+with NovaAct(
+    starting_page="https://example.com",
+    proxy=proxy_config
+) as nova:
+    # Traffic to example.com goes through proxy
+    nova.act("Search for products")
+    
+    # Traffic to internal.company.com bypasses proxy
+    nova.go_to_url("https://api.internal.company.com")
+```
+
+The bypass parameter accepts:
+- Specific hostnames: `localhost`, `127.0.0.1`
+- Wildcard patterns: `*.internal.company.com`
+- IP ranges: `192.168.0.0/16`
+- Multiple values: Comma-separated list
+
+## Workflow example
+
+Complete workflow with proxy configuration:
+
+```python
+import os
+from nova_act import NovaAct
+
+def get_proxy_config():
+    """Load proxy configuration from environment."""
+    proxy_server = os.getenv("PROXY_SERVER")
+    
+    if not proxy_server:
+        return None
+    
+    config = {"server": proxy_server}
+    
+    # Add authentication if provided
+    username = os.getenv("PROXY_USERNAME")
+    password = os.getenv("PROXY_PASSWORD")
+    
+    if username and password:
+        config["username"] = username
+        config["password"] = password
+    
+    # Add bypass rules if provided
+    bypass = os.getenv("PROXY_BYPASS")
+    if bypass:
+        config["bypass"] = bypass
+    
+    return config
+
+def main():
+    proxy_config = get_proxy_config()
+    
+    with NovaAct(
+        starting_page="https://example.com",
+        proxy=proxy_config
+    ) as nova:
+        nova.act("Complete the automated task")
+
+if __name__ == "__main__":
+    main()
+```
+
+## Corporate proxy setup
+
+For corporate environments with automatic proxy configuration:
+
+```python
+import os
+import re
+import requests
+
+def get_corporate_proxy():
+    """Detect corporate proxy from PAC file."""
+    pac_url = os.getenv("PAC_URL")
+    
+    if pac_url:
+        # Download and parse PAC file
+        response = requests.get(pac_url)
+        pac_content = response.text
+        
+        # Extract proxy server (simplified parsing)
+        match = re.search(r'PROXY\s+([^;]+)', pac_content)
+        if match:
+            proxy_server = match.group(1).strip()
+            return {"server": f"http://{proxy_server}"}
+    
+    return None
+
+proxy_config = get_corporate_proxy()
+
+if proxy_config:
+    with NovaAct(
+        starting_page="https://example.com",
+        proxy=proxy_config
+    ) as nova:
+        nova.act("Complete the task")
+else:
+    # No proxy needed
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Complete the task")
+```
+
+## Testing proxy configuration
+
+Verify your proxy is working correctly:
+
+```python
+from nova_act import NovaAct
+
+proxy_config = {
+    "server": "http://proxy.example.com:8080",
+    "username": "myusername",
+    "password": "mypassword"
+}
+
+with NovaAct(
+    starting_page="https://api.ipify.org?format=json",
+    proxy=proxy_config
+) as nova:
+    # Get IP address as seen by the website
+    result = nova.act_get("Return the IP address shown on the page")
+    print(f"IP address through proxy: {result.response}")
+```
+
+The IP address should match your proxy server's IP, not your local machine's IP.
+
+## Important notes
+
+<Note>
+  If connecting to a CDP (Chrome DevTools Protocol) endpoint, the code that launches the browser is responsible for configuring the proxy. The `proxy` parameter only applies when NovaAct is creating and launching the browser.
+</Note>
+
+### When proxy configuration applies
+
+✅ **Applies when:**
+- NovaAct creates and manages the browser
+- Using default browser launch
+- `starting_page` parameter is provided
+
+❌ **Does not apply when:**
+- Connecting to existing browser via CDP
+- Using `cdp_endpoint` parameter
+- Browser is launched externally
+
+## Troubleshooting
+
+<Accordion title="Connection timeout errors">
+  Check that:
+  - Proxy server URL is correct
+  - Proxy server is accessible from your network
+  - Proxy port is open and accepting connections
+  - Credentials are correct (if required)
+  - Test with curl: `curl -x http://proxy:8080 https://example.com`
+</Accordion>
+
+<Accordion title="Authentication failures">
+  Verify:
+  - Username and password are correct
+  - Credentials don't contain special characters that need encoding
+  - Proxy supports the authentication method
+  - Account hasn't been locked due to failed attempts
+</Accordion>
+
+<Accordion title="Some sites not working through proxy">
+  This may be due to:
+  - SSL/TLS interception by the proxy
+  - Proxy blocking certain domains
+  - Certificate validation issues
+  - Try adding affected domains to the bypass list
+</Accordion>
+
+<Accordion title="Performance is slow">
+  Consider:
+  - Proxy server location and latency
+  - Proxy server load
+  - Network bandwidth between you and proxy
+  - Using a faster proxy or direct connection for time-sensitive tasks
+</Accordion>
+
+## Best practices
+
+### Security
+
+<Warning>
+  Proxy credentials are sensitive. Never commit them to version control.
+</Warning>
+
+- **Use environment variables**: Store credentials securely
+- **Rotate credentials**: Change proxy passwords regularly
+- **Audit access**: Log proxy usage for security audits
+- **Encrypt in transit**: Use HTTPS proxies when possible
+
+### Reliability
+
+```python
+import time
+from nova_act import NovaAct, ActError
+
+def run_with_proxy_retry(url, task, max_retries=3):
+    """Retry workflow if proxy connection fails."""
+    for attempt in range(max_retries):
+        try:
+            proxy_config = get_proxy_config()
+            
+            with NovaAct(
+                starting_page=url,
+                proxy=proxy_config
+            ) as nova:
+                return nova.act(task)
+        except ActError as e:
+            if "proxy" in str(e).lower() and attempt < max_retries - 1:
+                print(f"Proxy error, retrying in {2 ** attempt}s...")
+                time.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                raise
+
+result = run_with_proxy_retry(
+    "https://example.com",
+    "Search for products"
+)
+```
+
+### Performance
+
+<Tip>
+  Use the bypass parameter to exclude internal resources from going through the proxy.
+</Tip>
+
+```python
+proxy_config = {
+    "server": "http://proxy.example.com:8080",
+    # Bypass proxy for local and internal resources
+    "bypass": "localhost,127.0.0.1,*.internal,*.local"
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Headless mode" icon="eye-slash" href="/advanced/headless-mode">
+    Run browsers in headless mode
+  </Card>
+  <Card title="Security" icon="shield-halved" href="/guides/security">
+    Security best practices
+  </Card>
+  <Card title="NovaAct API" icon="code" href="/api/novaact">
+    Complete API reference
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle connection errors
+  </Card>
+</CardGroup>

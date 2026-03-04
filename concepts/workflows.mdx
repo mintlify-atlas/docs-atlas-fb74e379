@@ -1,0 +1,277 @@
+---
+title: 'Workflows'
+description: 'Orchestrate agent tasks with Nova Act workflows using context managers, decorators, and multi-threading'
+---
+
+## Overview
+
+A workflow defines your agent's end-to-end task. Workflows are comprised of `act()` statements and Python code that orchestrate the automation logic. The Nova Act SDK provides convenience wrappers for managing workflows deployed with the Nova Act AWS service.
+
+## The Context Manager
+
+The core type driving workflow coordination with the Nova Act service is `Workflow`. This class provides a [context manager](https://peps.python.org/pep-0343/) which handles calling the necessary workflow API operations from the Amazon Nova Act service.
+
+### Basic Usage
+
+```python
+from nova_act import NovaAct, Workflow
+
+def main():
+    with Workflow(
+        workflow_definition_name="<your-workflow-name>",
+        model_id="nova-act-latest"
+    ) as workflow:
+        with NovaAct(
+            starting_page="https://nova.amazon.com/act/gym/next-dot/search",
+            workflow=workflow,
+        ) as nova:
+            nova.act("Find flights from Boston to Wolf on Feb 22nd")
+
+if __name__ == "__main__":
+    main()
+```
+
+### How It Works
+
+The `Workflow` context manager:
+- Calls `CreateWorkflowRun` when your run starts
+- Calls `UpdateWorkflowRun` with the appropriate status when it finishes
+- Associates all called APIs (`CreateSession`, `CreateAct`, `InvokeActStep`, `UpdateAct`) with the correct workflow + run
+
+<Note>
+When using the `Workflow` context manager, the `workflow` parameter must be passed to the `NovaAct` constructor to associate the session with the workflow run.
+</Note>
+
+## The Decorator
+
+For convenience, the SDK also exposes a decorator which can be used to annotate functions to be run under a given workflow. The decorator leverages [ContextVars](https://peps.python.org/pep-0567/) to inject the correct `Workflow` object into each `NovaAct` instance within the function.
+
+### Basic Usage
+
+```python
+from nova_act import NovaAct, workflow
+
+@workflow(
+    workflow_definition_name="<your-workflow-name>",
+    model_id="nova-act-latest",
+)
+def main():
+    with NovaAct(starting_page="https://nova.amazon.com/act/gym/next-dot/search") as nova:
+        nova.act("Find flights from Boston to Wolf on Feb 22nd")
+
+if __name__ == "__main__":
+    main()
+```
+
+<Info>
+When using the `@workflow` decorator, you don't need to provide the `workflow` keyword argument to `NovaAct`. The decorator automatically injects the workflow context using ContextVars.
+</Info>
+
+## Authentication
+
+Workflows support two authentication methods:
+
+### AWS IAM Authentication
+
+```python
+from nova_act import Workflow
+
+with Workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest",
+    boto_session_kwargs={
+        "profile_name": "my-aws-profile",
+        "region_name": "us-east-1"
+    }
+) as workflow:
+    # ... workflow logic
+```
+
+### API Key Authentication
+
+```python
+from nova_act import Workflow
+
+with Workflow(
+    model_id="nova-act-latest",
+    nova_act_api_key="your-api-key",
+) as workflow:
+    # ... workflow logic
+```
+
+<Note>
+**By default**, if you don't provide `boto_session_kwargs` and don't use an API key, the workflow will automatically load AWS credentials using boto3 with `{"region_name": "us-east-1"}` as the default configuration.
+</Note>
+
+## Retry Handling
+
+By default, when a Nova Act request times out, the SDK will retry it once. This can be overridden by passing a `boto_config` object:
+
+```python
+from botocore.config import Config
+from nova_act import Workflow
+
+boto_config = Config(
+    retries={"total_max_attempts": 5, "mode": "standard"},
+    read_timeout=90
+)
+
+with Workflow(
+    boto_config=boto_config,
+    workflow_definition_name="<your-workflow-name>",
+    model_id="nova-act-latest"
+) as workflow:
+    # ... workflow logic
+```
+
+<Warning>
+Retrying the same Nova Act request may result in increased cost if the request ends up executing multiple times.
+</Warning>
+
+For more information on retries including retry modes, refer to the [botocore retry documentation](https://botocore.amazonaws.com/v1/documentation/api/latest/reference/config.html).
+
+## Multi-Threading
+
+The `Workflow` class works seamlessly with multi-threaded workflows.
+
+### Using the Context Manager
+
+```python
+from threading import Thread
+from nova_act import NovaAct, Workflow
+
+def multi_threaded_helper(workflow: Workflow):
+    with NovaAct(..., workflow=workflow) as nova:
+        # nova will have the appropriate workflow run
+        nova.act("Do something")
+
+with Workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest"
+) as workflow:
+    t = Thread(target=multi_threaded_helper, args=(workflow,))
+    t.start()
+    t.join()
+```
+
+### Using the Decorator
+
+Because the `@workflow` decorator leverages ContextVars for injecting context, and because ContextVars are thread-specific, you must provide the context to any functions that will run in different threads.
+
+<Tabs>
+  <Tab title="Using copy_context">
+    ```python
+    from contextvars import copy_context
+    from threading import Thread
+    from nova_act import NovaAct, workflow
+
+    def multi_threaded_helper():
+        with NovaAct(...) as nova:
+            # nova will have the appropriate workflow run
+            nova.act("Do something")
+
+    @workflow(
+        workflow_definition_name="my-workflow",
+        model_id="nova-act-latest",
+    )
+    def multi_threaded_workflow():
+        ctx = copy_context()
+        t = Thread(target=ctx.run, args=(multi_threaded_helper,))
+        t.start()
+        t.join()
+
+    multi_threaded_workflow()
+    ```
+  </Tab>
+  <Tab title="Manual Injection">
+    ```python
+    from threading import Thread
+    from nova_act import NovaAct, get_current_workflow, workflow
+
+    def multi_threaded_helper(workflow: Workflow):
+        with NovaAct(..., workflow=workflow) as nova:
+            # nova will have the appropriate workflow run
+            nova.act("Do something")
+
+    @workflow(
+        workflow_definition_name="my-workflow",
+        model_id="nova-act-latest",
+    )
+    def multi_threaded_workflow():
+        t = Thread(
+            target=multi_threaded_helper,
+            args=(get_current_workflow(),)
+        )
+        t.start()
+        t.join()
+
+    multi_threaded_workflow()
+    ```
+  </Tab>
+</Tabs>
+
+## Multi-Processing
+
+<Warning>
+The `Workflow` construct does not currently support passing between multi-processing because it maintains a boto3 Session and Client as instance variables, and those objects are not [pickle](https://docs.python.org/3/library/pickle.html)-able. Support coming soon!
+</Warning>
+
+## Workflow Properties
+
+The `Workflow` class exposes several useful properties:
+
+```python
+from nova_act import Workflow
+
+with Workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest"
+) as workflow:
+    # Get the workflow definition name
+    print(workflow.workflow_definition_name)
+    
+    # Get the workflow run ID
+    print(workflow.workflow_run_id)
+    
+    # Get the WorkflowRun DTO
+    print(workflow.workflow_run)
+    
+    # Get the backend instance
+    print(workflow.backend)
+```
+
+## Best Practices
+
+### 1. Always Use Context Managers
+
+Always use the `Workflow` as a context manager to ensure proper cleanup and status updates:
+
+```python
+# Good
+with Workflow(...) as workflow:
+    # workflow logic
+
+# Bad - workflow run status won't be updated properly
+workflow = Workflow(...)
+workflow.__enter__()
+# workflow logic
+```
+
+### 2. Choose the Right Pattern
+
+- Use the **context manager** when you need explicit control over the workflow object or are passing it to helper functions
+- Use the **decorator** for cleaner code when the workflow context is only needed within a single function
+
+### 3. Handle Exceptions
+
+The workflow context manager automatically sets the workflow run status to `FAILED` if an exception occurs:
+
+```python
+with Workflow(...) as workflow:
+    try:
+        with NovaAct(..., workflow=workflow) as nova:
+            nova.act("Do something")
+    except ActError as e:
+        print(f"Act failed: {e}")
+        # Workflow run will be marked as FAILED
+```

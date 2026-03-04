@@ -1,0 +1,690 @@
+---
+title: "Errors"
+description: "Complete error hierarchy for handling exceptions in Nova Act"
+---
+
+## Overview
+
+Nova Act provides a comprehensive error hierarchy for handling different failure scenarios. All errors during `act()` execution inherit from `ActError`, which itself inherits from `NovaActError`.
+
+```python
+from nova_act import NovaAct, ActError, ActTimeoutError
+
+try:
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Complete task", timeout=30)
+except ActTimeoutError:
+    print("Task timed out")
+except ActError as e:
+    print(f"Act failed: {e.message}")
+    print(f"Steps executed: {e.metadata.num_steps_executed}")
+```
+
+## Base Errors
+
+### NovaActError
+
+Base exception class for all Nova Act errors.
+
+```python
+from nova_act import NovaActError
+
+try:
+    # NovaAct operations
+    pass
+except NovaActError as e:
+    print(f"Nova Act error: {e}")
+```
+
+### ActError
+
+Base class for all errors encountered during `act()` execution. Contains metadata about the execution context.
+
+```python
+from nova_act import ActError
+
+try:
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Complete task")
+except ActError as e:
+    print(f"Error: {e.message}")
+    if e.metadata:
+        print(f"Session: {e.metadata.session_id}")
+        print(f"Act ID: {e.metadata.act_id}")
+        print(f"Steps: {e.metadata.num_steps_executed}")
+```
+
+#### Attributes
+
+<ResponseField name="message" type="str">
+  Human-readable error message.
+</ResponseField>
+
+<ResponseField name="metadata" type="ActMetadata | None">
+  Metadata about the act execution context, including session_id, act_id, and step count.
+</ResponseField>
+
+## Execution Errors
+
+Errors related to client-side execution issues.
+
+### ActExecutionError
+
+Indicates an error encountered during client execution.
+
+```python
+from nova_act import ActExecutionError
+
+try:
+    nova.act("Complete task")
+except ActExecutionError as e:
+    print(f"Execution error: {e}")
+```
+
+### ActCanceledError
+
+Indicates the client received a cancel signal and stopped.
+
+```python
+from nova_act import ActCanceledError
+
+try:
+    nova.act("Long running task")
+except ActCanceledError:
+    print("User canceled the operation")
+```
+
+<Note>Default message: "Act Canceled."</Note>
+
+### ActActuationError
+
+Indicates the client failed to actuate a given command from the agent.
+
+```python
+from nova_act import ActActuationError
+
+try:
+    nova.act("Click invalid element")
+except ActActuationError as e:
+    print(f"Actuation failed: {e.message}")
+```
+
+<Note>Default message: "Encountered error actuating model actions."</Note>
+
+### ActTimeoutError
+
+Indicates an act call timed out.
+
+```python
+from nova_act import ActTimeoutError
+
+try:
+    nova.act("Complex task", timeout=10)
+except ActTimeoutError:
+    print("Task exceeded timeout")
+```
+
+<Note>Default message: "Timed out; try increasing the 'timeout' kwarg on the 'act' call"</Note>
+
+### ActStateGuardrailError
+
+Indicates a client-provided agent state guardrail triggered.
+
+```python
+from nova_act import ActStateGuardrailError, GuardrailDecision
+
+def my_guardrail(state):
+    if "blocked.com" in state.browser_url:
+        return GuardrailDecision.BLOCK
+    return GuardrailDecision.PASS
+
+try:
+    with NovaAct(starting_page="https://example.com", 
+                 state_guardrail=my_guardrail) as nova:
+        nova.act("Navigate")
+except ActStateGuardrailError:
+    print("Blocked by guardrail")
+```
+
+<Note>Default message: "Blocked by agent state guardrail"</Note>
+
+## Agent Errors
+
+Errors indicating the agent cannot complete the requested task.
+
+### ActAgentError
+
+Indicates the provided prompt cannot be completed in the given configuration.
+
+```python
+from nova_act import ActAgentError
+
+try:
+    nova.act("Impossible task")
+except ActAgentError as e:
+    print(f"Agent error: {e.message}")
+```
+
+### ActAgentFailed
+
+Indicates the model raised an error because it could not complete the request.
+
+```python
+from nova_act import ActAgentFailed
+
+try:
+    nova.act("Find element that doesn't exist")
+except ActAgentFailed:
+    print("Agent explicitly failed")
+```
+
+<Note>Default message: "The requested action was not possible"</Note>
+
+### ActExceededMaxStepsError
+
+Indicates an Act session exceeded the maximum allowed steps.
+
+```python
+from nova_act import ActExceededMaxStepsError
+
+try:
+    nova.act("Complex task", max_steps=5)
+except ActExceededMaxStepsError:
+    print("Task required too many steps")
+```
+
+<Note>Default message: "Allowed Steps Exceeded"</Note>
+
+## Model Generation Errors
+
+Errors related to model output and tool invocation.
+
+### ActInvalidModelGenerationError
+
+Indicates the Act model failed or produced invalid output.
+
+```python
+from nova_act import ActInvalidModelGenerationError
+
+try:
+    result = nova.act_get("Get data", schema={"type": "object"})
+except ActInvalidModelGenerationError as e:
+    print(f"Invalid model output: {e.message}")
+    if e.raw_response:
+        print(f"Raw response: {e.raw_response}")
+```
+
+<Note>Default message: "The model output could not be processed. Please try a different request."</Note>
+
+#### Attributes
+
+<ResponseField name="raw_response" type="str | None">
+  The raw response from the model, if available.
+</ResponseField>
+
+### ActInvalidToolError
+
+Indicates the model attempted to call an unknown tool.
+
+```python
+from nova_act import ActInvalidToolError
+
+try:
+    nova.act("Use unknown tool")
+except ActInvalidToolError:
+    print("Model called non-existent tool")
+```
+
+<Note>Default message: "The requested tool does not exist."</Note>
+
+### ActInvalidToolSchemaError
+
+Indicates a tool call failed validation against the tool schema.
+
+```python
+from nova_act import ActInvalidToolSchemaError
+
+try:
+    nova.act("Call tool with wrong arguments")
+except ActInvalidToolSchemaError:
+    print("Tool arguments didn't match schema")
+```
+
+<Note>Default message: "Tool arguments did not match the expected schema."</Note>
+
+## Tool Execution Errors
+
+### ActToolError
+
+Indicates a failure running a tool.
+
+```python
+from nova_act import ActToolError
+
+try:
+    nova.act("Use failing tool")
+except ActToolError:
+    print("Tool execution failed")
+```
+
+<Note>Default message: "Failed to invoke a tool."</Note>
+
+### ActMCPError
+
+Indicates a failure running an MCP-provided tool.
+
+```python
+from nova_act import ActMCPError
+
+try:
+    nova.act("Use MCP tool")
+except ActMCPError:
+    print("MCP tool failed")
+```
+
+<Note>Default message: "Failed to invoke MCP tool."</Note>
+
+## API Errors
+
+Errors related to communication with NovaAct services.
+
+### ActAPIError
+
+Base class for errors caused by a breach of contract between client/server.
+
+```python
+from nova_act import ActAPIError
+
+try:
+    nova.act("Task")
+except ActAPIError as e:
+    print(f"API error: {e.message}")
+    print(f"Status code: {e.status_code}")
+    print(f"Request ID: {e.request_id}")
+```
+
+#### Attributes
+
+<ResponseField name="request_id" type="str | None">
+  The request ID from the server.
+</ResponseField>
+
+<ResponseField name="status_code" type="int | None">
+  HTTP status code of the response.
+</ResponseField>
+
+<ResponseField name="raw_response" type="str | None">
+  Raw response body from the server.
+</ResponseField>
+
+### ActClientError
+
+Errors caused by bad requests to NovaAct Service. Indicates that users may retry with a different request.
+
+```python
+from nova_act import ActClientError
+
+try:
+    nova.act("Invalid request")
+except ActClientError as e:
+    print(f"Client error: {e.message}")
+    print(f"Fix your request and try again")
+```
+
+<Note>Default message: "Client error calling NovaAct Service."</Note>
+
+### ActBadRequestError
+
+Indicates a bad request to /step endpoint.
+
+```python
+from nova_act import ActBadRequestError
+
+try:
+    nova.act("Malformed request")
+except ActBadRequestError:
+    print("Request was malformed")
+```
+
+<Note>Default message: "Bad request"</Note>
+
+### ActGuardrailsError
+
+Indicates an Act request was blocked by the agent guardrails system.
+
+```python
+from nova_act import ActGuardrailsError
+
+try:
+    nova.act("Unsafe action")
+except ActGuardrailsError:
+    print("Request blocked by server guardrails")
+```
+
+<Note>Default message: "I'm sorry, but I can't engage in unsafe or inappropriate actions. Please try a different request."</Note>
+
+### ActRateLimitExceededError
+
+Indicates a request for an Act session was throttled.
+
+```python
+from nova_act import ActRateLimitExceededError
+
+try:
+    nova.act("Task")
+except ActRateLimitExceededError:
+    print("Rate limit exceeded, try again later")
+```
+
+<Note>Suggests migrating to AWS Nova Act service for dedicated quota.</Note>
+
+### ActRequestThrottledError
+
+Indicates a request was throttled due to too many requests in a short time.
+
+```python
+from nova_act import ActRequestThrottledError
+import time
+
+try:
+    nova.act("Task")
+except ActRequestThrottledError:
+    print("Throttled, waiting before retry...")
+    time.sleep(5)
+```
+
+### ActDailyQuotaExceededError
+
+Indicates a request was rejected as the user's daily quota has been exceeded.
+
+```python
+from nova_act import ActDailyQuotaExceededError
+
+try:
+    nova.act("Task")
+except ActDailyQuotaExceededError:
+    print("Daily quota exceeded")
+```
+
+### ActServerError
+
+Error caused by bad responses from NovaAct Service. Indicates an issue with the service.
+
+```python
+from nova_act import ActServerError
+
+try:
+    nova.act("Task")
+except ActServerError as e:
+    print(f"Server error: {e.message}")
+    print("Please report to customer support")
+```
+
+<Note>Default message: "Error calling NovaAct Service."</Note>
+
+### ActBadResponseError
+
+Indicates a bad response from the /step endpoint.
+
+```python
+from nova_act import ActBadResponseError
+
+try:
+    nova.act("Task")
+except ActBadResponseError:
+    print("Received malformed response from server")
+```
+
+<Note>Default message: "Bad Response"</Note>
+
+### ActServiceUnavailableError
+
+Indicates the /step endpoint is currently unavailable.
+
+```python
+from nova_act import ActServiceUnavailableError
+import time
+
+try:
+    nova.act("Task")
+except ActServiceUnavailableError:
+    print("Service unavailable, retrying...")
+    time.sleep(10)
+```
+
+<Note>Default message: "NovaAct Service Unavailable"</Note>
+
+### ActInternalServerError
+
+Indicates an internal server error occurred while processing an Act request.
+
+```python
+from nova_act import ActInternalServerError
+
+try:
+    nova.act("Task")
+except ActInternalServerError:
+    print("Internal server error")
+```
+
+<Note>Default message: "Internal Server Error"</Note>
+
+## Human Input Errors
+
+### NoHumanInputToolAvailable
+
+Indicates the model requested human input but no callbacks were provided.
+
+```python
+from nova_act import NoHumanInputToolAvailable
+
+try:
+    # NovaAct without human_input_callbacks
+    nova.act("Task requiring human input")
+except NoHumanInputToolAvailable:
+    print("Need to provide human_input_callbacks")
+```
+
+<Note>Default message: "Human input required to proceed. Implement and provide human_input_callbacks."</Note>
+
+### ApproveCanceledError
+
+Indicates the client received a cancel response during human approval.
+
+```python
+from nova_act import ApproveCanceledError
+
+try:
+    nova.act("Task with approval")
+except ApproveCanceledError:
+    print("User denied approval")
+```
+
+<Note>Default message: "Act Canceled during Human Approval."</Note>
+
+### UiTakeoverCanceledError
+
+Indicates the client received a cancel signal during human UI takeover.
+
+```python
+from nova_act import UiTakeoverCanceledError
+
+try:
+    nova.act("Task with UI takeover")
+except UiTakeoverCanceledError:
+    print("User canceled during UI takeover")
+```
+
+<Note>Default message: "Act Canceled during Human UI Takeover."</Note>
+
+## NovaAct Lifecycle Errors
+
+### StartFailed
+
+Raised when the NovaAct client fails to start.
+
+```python
+from nova_act import NovaAct, StartFailed
+
+try:
+    nova = NovaAct(starting_page="invalid://url")
+    nova.start()
+except StartFailed as e:
+    print(f"Failed to start: {e}")
+```
+
+### StopFailed
+
+Raised when the NovaAct client fails to stop cleanly.
+
+```python
+from nova_act import NovaAct, StopFailed
+
+try:
+    nova.stop()
+except StopFailed as e:
+    print(f"Failed to stop: {e}")
+```
+
+### ValidationFailed
+
+Raised when input validation fails.
+
+```python
+from nova_act import NovaAct, ValidationFailed
+
+try:
+    nova = NovaAct(
+        starting_page="https://example.com",
+        screen_width=-100  # Invalid
+    )
+except ValidationFailed as e:
+    print(f"Validation error: {e}")
+```
+
+### ClientNotStarted
+
+Raised when attempting to use NovaAct before calling start().
+
+```python
+from nova_act import NovaAct, ClientNotStarted
+
+try:
+    nova = NovaAct(starting_page="https://example.com")
+    nova.act("Task")  # Error: not started
+except ClientNotStarted:
+    print("Must call start() first")
+    nova.start()
+```
+
+### AuthError
+
+Raised when authentication fails or is misconfigured.
+
+```python
+from nova_act import Workflow, AuthError
+
+try:
+    workflow = Workflow(
+        model_id="nova-act-latest",
+        boto_session_kwargs={},
+        nova_act_api_key="key"  # Can't use both
+    )
+except AuthError as e:
+    print(f"Auth error: {e}")
+```
+
+## Deprecated Errors
+
+<Warning>
+  The following errors are deprecated and maintained for backward compatibility only.
+</Warning>
+
+### ActModelError (Deprecated)
+
+Deprecated since 2.1.0. Use `ActInvalidModelGenerationError` instead.
+
+### ActPromptError (Deprecated)
+
+Deprecated since 2.1.0. Rolled into `ActClientError`.
+
+### ActDispatchError (Deprecated)
+
+Deprecated since 2.1.0. No longer raised as Chrome extension is deprecated.
+
+### ActProtocolError (Deprecated)
+
+Deprecated since 2.1.0. Roughly correlates with `ActAPIError`.
+
+### ActInvalidInputError (Deprecated)
+
+Deprecated since 2.1.0. Rolled into `ActBadRequestError`.
+
+## Error Handling Best Practices
+
+### Catch Specific Errors
+
+```python
+from nova_act import (
+    NovaAct,
+    ActTimeoutError,
+    ActRateLimitExceededError,
+    ActAgentFailed,
+    ActError
+)
+
+with NovaAct(starting_page="https://example.com") as nova:
+    try:
+        nova.act("Complete task", timeout=30)
+    except ActTimeoutError:
+        print("Task timed out, consider increasing timeout")
+    except ActRateLimitExceededError:
+        print("Rate limited, wait before retrying")
+    except ActAgentFailed:
+        print("Agent couldn't complete task, try different prompt")
+    except ActError as e:
+        print(f"Other act error: {e}")
+```
+
+### Access Error Metadata
+
+```python
+from nova_act import NovaAct, ActError
+
+with NovaAct(starting_page="https://example.com") as nova:
+    try:
+        nova.act("Task")
+    except ActError as e:
+        if e.metadata:
+            print(f"Failed after {e.metadata.num_steps_executed} steps")
+            print(f"Session: {e.metadata.session_id}")
+            print(f"Prompt: {e.metadata.prompt}")
+```
+
+### Retry Logic
+
+```python
+from nova_act import NovaAct, ActRequestThrottledError, ActServerError
+import time
+
+def act_with_retry(nova, prompt, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return nova.act(prompt)
+        except ActRequestThrottledError:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff
+                print(f"Throttled, waiting {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                raise
+        except ActServerError:
+            if attempt < max_retries - 1:
+                print(f"Server error, retrying...")
+                time.sleep(5)
+            else:
+                raise
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = act_with_retry(nova, "Complete task")
+```

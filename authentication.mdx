@@ -1,0 +1,259 @@
+---
+title: Authentication
+description: Configure API key or IAM-based authentication for Amazon Nova Act
+---
+
+Amazon Nova Act supports two authentication methods: API key authentication for development and experimentation, and IAM-based authentication for production deployments.
+
+## API key authentication
+
+<Note>
+  When using API key authentication, access and use are subject to the [nova.amazon.com Terms of Use](https://nova.amazon.com/act).
+</Note>
+
+API key authentication is the quickest way to get started with Nova Act. It's ideal for:
+- Local development and testing
+- Experimenting with Nova Act features
+- Prototyping workflows
+- Previewing new Nova Act model versions
+
+### Get your API key
+
+<Steps>
+  <Step title="Visit the Nova Act playground">
+    Navigate to [nova.amazon.com/act](https://nova.amazon.com/act) and sign in
+  </Step>
+  
+  <Step title="Generate an API key">
+    Generate a new API key from your account settings
+  </Step>
+  
+  <Step title="Set the environment variable">
+    Save your API key as an environment variable:
+    ```bash
+    export NOVA_ACT_API_KEY="your_api_key"
+    ```
+  </Step>
+</Steps>
+
+### Use the API key in your code
+
+Once the environment variable is set, you can use Nova Act without additional configuration:
+
+```python
+from nova_act import NovaAct
+
+# API key is automatically read from NOVA_ACT_API_KEY environment variable
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.act("Search for products")
+```
+
+Alternatively, pass the API key directly to the constructor:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(
+    starting_page="https://example.com",
+    nova_act_api_key="your_api_key"
+) as nova:
+    nova.act("Search for products")
+```
+
+<Warning>
+  Never commit API keys to version control. Use environment variables or secure secret management systems.
+</Warning>
+
+## IAM-based authentication
+
+<Note>
+  When using IAM authentication and deploying to the Nova Act AWS service, your [AWS Service Terms](https://aws.amazon.com/service-terms/) and/or Customer Agreement apply.
+</Note>
+
+IAM-based authentication is recommended for production deployments. It provides:
+- Integration with AWS Identity and Access Management
+- Fine-grained access control
+- Audit logging via CloudTrail
+- No API key management overhead
+
+### Prerequisites
+
+- AWS account with Nova Act service access
+- Configured AWS credentials (via AWS CLI, environment variables, or IAM role)
+- Permissions to create and manage Nova Act workflow definitions
+
+### Use IAM authentication with Workflows
+
+IAM authentication is used automatically when you create a `Workflow`:
+
+```python
+from nova_act import NovaAct, Workflow
+
+with Workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest"
+) as workflow:
+    with NovaAct(
+        starting_page="https://example.com",
+        workflow=workflow
+    ) as nova:
+        nova.act("Complete the task")
+```
+
+The SDK will automatically use your configured AWS credentials. If you don't have AWS credentials configured, the SDK will look for:
+
+1. Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+2. AWS credentials file (`~/.aws/credentials`)
+3. IAM role (when running on EC2, ECS, or Lambda)
+
+### Configure AWS credentials
+
+<Tabs>
+  <Tab title="AWS CLI">
+    Configure credentials using the AWS CLI:
+    ```bash
+    aws configure
+    ```
+    
+    Enter your:
+    - AWS Access Key ID
+    - AWS Secret Access Key
+    - Default region (e.g., `us-east-1`)
+    - Default output format
+  </Tab>
+  
+  <Tab title="Environment variables">
+    Set credentials as environment variables:
+    ```bash
+    export AWS_ACCESS_KEY_ID="your_access_key"
+    export AWS_SECRET_ACCESS_KEY="your_secret_key"
+    export AWS_DEFAULT_REGION="us-east-1"
+    ```
+  </Tab>
+  
+  <Tab title="Credentials file">
+    Create or edit `~/.aws/credentials`:
+    ```ini
+    [default]
+    aws_access_key_id = your_access_key
+    aws_secret_access_key = your_secret_key
+    ```
+    
+    And `~/.aws/config`:
+    ```ini
+    [default]
+    region = us-east-1
+    ```
+  </Tab>
+  
+  <Tab title="Custom profile">
+    Use a custom AWS profile:
+    ```python
+    from nova_act import NovaAct, Workflow
+    
+    with Workflow(
+        workflow_definition_name="my-workflow",
+        model_id="nova-act-latest",
+        boto_session_kwargs={
+            "profile_name": "my-aws-profile",
+            "region_name": "us-east-1"
+        }
+    ) as workflow:
+        with NovaAct(
+            starting_page="https://example.com",
+            workflow=workflow
+        ) as nova:
+            nova.act("Complete the task")
+    ```
+  </Tab>
+</Tabs>
+
+### Default boto session
+
+<Info>
+  The SDK will instantiate a default boto3 session if AWS credentials are already configured in your environment.
+</Info>
+
+If you don't provide `boto_session_kwargs` and don't use an API key, the workflow will automatically load AWS credentials using boto3's default credential chain. See [boto3 documentation](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html) for details.
+
+## Authentication decision guide
+
+Choose your authentication method based on your use case:
+
+| Scenario | Recommended Authentication |
+|----------|---------------------------|
+| Local development | API key |
+| Testing and prototyping | API key |
+| Production workflows | IAM |
+| AWS-hosted applications | IAM |
+| CI/CD pipelines | IAM |
+| Sharing with team | IAM (with proper IAM policies) |
+
+## Required permissions
+
+For IAM-based authentication, your IAM user or role needs the following permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "nova-act:CreateWorkflowDefinition",
+        "nova-act:GetWorkflowDefinition",
+        "nova-act:CreateWorkflowRun",
+        "nova-act:UpdateWorkflowRun",
+        "nova-act:CreateSession",
+        "nova-act:CreateAct",
+        "nova-act:InvokeActStep",
+        "nova-act:UpdateAct"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+For deployment to AWS AgentCore Runtime, see the [deployment guide](/guides/deployment) for additional required permissions.
+
+## Troubleshooting
+
+<Accordion title="API key not working">
+  Verify that:
+  - The API key is correctly set in the `NOVA_ACT_API_KEY` environment variable
+  - The API key hasn't expired
+  - You're connected to the internet
+  - The nova.amazon.com service is accessible from your location
+</Accordion>
+
+<Accordion title="IAM authentication failing">
+  Check that:
+  - AWS credentials are properly configured (run `aws sts get-caller-identity` to test)
+  - Your IAM user/role has the required Nova Act permissions
+  - The region is set correctly (Nova Act is available in specific regions)
+  - Your AWS credentials haven't expired
+</Accordion>
+
+<Accordion title="Which authentication should I use?">
+  - Use **API key** for quick development and testing
+  - Use **IAM** for production deployments and AWS-integrated applications
+  - You can switch between authentication methods without changing your code (just use or omit the `workflow` parameter)
+</Accordion>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first Nova Act workflow
+  </Card>
+  <Card title="Workflows" icon="sitemap" href="/concepts/workflows">
+    Learn about workflow orchestration
+  </Card>
+  <Card title="Deployment" icon="cloud-arrow-up" href="/guides/deployment">
+    Deploy workflows to AWS
+  </Card>
+  <Card title="Security" icon="shield-halved" href="/guides/security">
+    Security best practices
+  </Card>
+</CardGroup>

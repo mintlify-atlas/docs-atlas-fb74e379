@@ -1,0 +1,434 @@
+---
+title: 'Deploying to AWS'
+description: 'Deploy Nova Act workflows to AWS AgentCore Runtime using the CLI or manual configuration'
+---
+
+## Overview
+
+Nova Act workflows can be deployed to AWS AgentCore Runtime for production use. The Nova Act CLI provides automated deployment handling containerization, ECR management, IAM roles, and multi-region deployments.
+
+## Prerequisites
+
+- **AWS CLI**: Configured with appropriate permissions
+- **Docker**: For building containers  
+- **Python 3.10+**: For running the CLI
+- **AWS Permissions**: IAM, ECR, AgentCore, STS access
+
+## Installation
+
+Install the CLI with the `cli` extra:
+
+```bash
+pip install nova-act[cli]
+```
+
+## Quick Start
+
+### Option 1: Named Workflow (Recommended)
+
+Create and manage named workflows for repeated deployments:
+
+```bash
+# 1. Create workflow configuration
+act workflow create --name my-workflow
+
+# 2. Deploy the workflow
+act workflow deploy --name my-workflow --source-dir /path/to/project
+
+# 3. Run the deployed workflow
+act workflow run --name my-workflow --payload '{"input": "data"}'
+```
+
+### Option 2: Quick Deploy
+
+Deploy any Python script directly:
+
+```bash
+# Deploy a directory with auto-detected entry point
+act workflow deploy --source-dir /path/to/your/project
+
+# Deploy with specific entry point
+act workflow deploy --source-dir /path/to/project --entry-point my_script.py
+
+# Run the deployed workflow (use auto-generated name)
+act workflow run --name workflow-20251130-120945 --payload '{"input": "test data"}'
+```
+
+<Note>
+Quick deploy creates a persistent workflow with auto-generated name. The workflow remains in your configuration and can be managed with standard workflow commands.
+</Note>
+
+## Entry Point Requirements
+
+The CLI uses the following entry point resolution:
+
+1. **Explicit specification** - Use `--entry-point filename.py`
+2. **Default fallback** - Defaults to `main.py` if not specified
+
+**Entry Point Requirements:**
+- Must be a `.py` file
+- Must contain `def main(payload):` function with at least one parameter
+- Use `--skip-entrypoint-validation` to bypass validation
+
+```python main.py
+import os
+from nova_act import NovaAct, workflow
+
+@workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest",
+)
+def main(payload):
+    # Access environment variables passed via AC_HANDLER_ENV
+    api_key = os.environ.get("NOVA_ACT_API_KEY")
+    
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act(f"Process: {payload.get('input')}")
+```
+
+### Skipping Validation
+
+Bypass entry point validation for non-standard workflows:
+
+```bash
+act workflow deploy --source-dir /path/to/code --skip-entrypoint-validation
+```
+
+**When to Use:**
+- Entry point uses dynamic function loading
+- Custom parameter signatures beyond `def main(payload):`
+- Testing experimental workflow patterns
+
+## CLI Commands
+
+### Core Workflow Commands
+
+<AccordionGroup>
+  <Accordion title="create" icon="plus">
+    Register a new workflow in configuration
+    
+    ```bash
+    act workflow create --name my-workflow
+    ```
+  </Accordion>
+
+  <Accordion title="deploy" icon="rocket">
+    Build and deploy workflow to AWS AgentCore
+    
+    ```bash
+    act workflow deploy --name my-workflow --source-dir /path/to/code
+    ```
+  </Accordion>
+
+  <Accordion title="run" icon="play">
+    Execute deployed workflow with payload
+    
+    ```bash
+    act workflow run --name my-workflow --payload '{"input": "data"}'
+    
+    # Run with log tailing
+    act workflow run --name my-workflow --payload '{}' --tail-logs
+    
+    # Run with payload file
+    act workflow run --name my-workflow --payload-file payload.json
+    ```
+  </Accordion>
+
+  <Accordion title="list" icon="list">
+    Show all configured workflows
+    
+    ```bash
+    act workflow list
+    ```
+  </Accordion>
+
+  <Accordion title="show" icon="eye">
+    Display detailed workflow information
+    
+    ```bash
+    act workflow show --name my-workflow
+    ```
+  </Accordion>
+
+  <Accordion title="update" icon="pen">
+    Modify workflow configuration
+    
+    ```bash
+    act workflow update --name my-workflow --source-dir /new/path
+    ```
+  </Accordion>
+
+  <Accordion title="delete" icon="trash">
+    Remove workflow from configuration
+    
+    ```bash
+    act workflow delete --name my-workflow
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Environment Variables
+
+Pass environment variables to your workflow at runtime using the `AC_HANDLER_ENV` payload field:
+
+```bash
+# Pass NOVA_ACT_API_KEY to workflow
+act workflow run --name my-workflow --payload '{
+  "AC_HANDLER_ENV": {
+    "NOVA_ACT_API_KEY": "your-api-key-here"
+  },
+  "input": "data"
+}'
+```
+
+**How It Works:**
+1. Include `AC_HANDLER_ENV` dictionary in your payload
+2. AgentCore handler extracts these variables before running your workflow
+3. Variables are set in `os.environ` and available to your code
+
+**Common Use Cases:**
+- `NOVA_ACT_API_KEY` - Nova Act API key for browser automation
+- Custom API keys and credentials
+- Feature flags and configuration values
+
+## IAM Role Management
+
+**Auto-Creation (Default):**
+```bash
+act workflow deploy --source-dir /path/to/code
+# Creates: nova-act-{workflow-name}-role
+```
+
+**Use Existing Role:**
+```bash
+act workflow deploy ... --execution-role-arn "arn:aws:iam::123456789012:role/MyRole"
+```
+
+**Auto-created roles include permissions for:**
+- Bedrock AgentCore operations
+- ECR image access
+- CloudWatch Logs
+- X-Ray tracing
+- S3 access (nova-act-* buckets)
+
+## Region and Profile Support
+
+Deploy to different regions:
+
+```bash
+act workflow deploy --name my-workflow --region us-west-2
+act workflow run --name my-workflow --region us-west-2
+```
+
+<Warning>
+The AWS Nova Act service is currently only available in `us-east-1`.
+</Warning>
+
+Use different AWS profiles:
+
+```bash
+# Deploy with specific profile
+act workflow --profile <aws_profile_name> deploy --name my-workflow --source-dir /path/to/code
+
+# Run with specific profile
+act workflow --profile <aws_profile_name> run --name my-workflow --payload '{}'
+```
+
+<Note>
+The `--profile` option must come before the subcommand (deploy, run, etc.)
+</Note>
+
+## AWS Resources Created
+
+The CLI automatically creates and manages:
+
+- **ECR Repository**: `nova-act-cli-default` (shared across workflows)
+- **IAM Role**: `nova-act-{workflow-name}-role` (unless custom role provided)
+- **S3 Bucket**: `nova-act-{account-id}-{region}` (unless skipped or custom bucket specified)
+- **AgentCore Runtime**: Container-based runtime for execution
+- **WorkflowDefinition**: Nova Act Workflow Definition
+- **CloudWatch Log Groups**: 
+  - `/aws/bedrock-agentcore/runtimes/{agent-id}-default` (runtime logs)
+  - `/aws/bedrock-agentcore/runtimes/{agent-id}-default/runtime-logs` (OpenTelemetry logs)
+
+## Advanced Configuration
+
+### Build Configuration
+
+```bash
+# Skip building (use existing image)
+act workflow deploy --no-build
+
+# Custom build directory
+act workflow deploy --build-dir /tmp/my-build
+
+# Overwrite existing build directory
+act workflow deploy --build-dir /tmp/my-build --overwrite-build-dir
+
+# Custom ECR repository
+act workflow deploy --ecr-repo 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo
+```
+
+**Build Artifact Management:**
+
+Build artifacts are stored in `~/.act_cli/builds/{workflow-name}/` and are persistent:
+
+```bash
+# Remove specific workflow build
+rm -rf ~/.act_cli/builds/my-workflow
+
+# Remove all builds
+rm -rf ~/.act_cli/builds/
+```
+
+### S3 Bucket Configuration
+
+**Default Behavior** (auto-creates bucket):
+```bash
+act workflow deploy --source-dir /path/to/code
+# Creates: nova-act-{account-id}-{region}
+```
+
+**Custom Bucket:**
+```bash
+act workflow deploy --source-dir /path/to/code --s3-bucket-name my-custom-bucket
+```
+
+**Skip S3 Creation:**
+```bash
+act workflow deploy --source-dir /path/to/code --skip-s3-creation
+```
+
+### Workflow Definition Management
+
+**Use Existing WorkflowDefinition:**
+
+```bash
+# During workflow creation
+act workflow create --name my-workflow \
+  --workflow-definition-arn arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow
+
+# Or update existing workflow
+act workflow update --name my-workflow \
+  --workflow-definition-arn arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow
+```
+
+## Log Streaming
+
+The `--tail-logs` flag streams real-time logs during workflow execution:
+
+```bash
+act workflow run --name my-workflow --payload '{}' --tail-logs
+```
+
+**Log Sources:**
+- Application logs (stdout/stderr from your workflow)
+- OpenTelemetry logs (tracing and instrumentation)
+
+**Behavior:**
+- Streams logs in real-time until workflow completes
+- Automatically handles log delays and pagination
+- Ctrl+C stops tailing but doesn't terminate workflow
+
+## Troubleshooting
+
+### Docker Build Issues
+
+Ensure Docker is running:
+
+```bash
+docker --version
+```
+
+### AWS Authentication
+
+Verify AWS credentials:
+
+```bash
+aws sts get-caller-identity
+```
+
+### ECR Login Issues
+
+The CLI handles ECR authentication automatically, but you can manually refresh:
+
+```bash
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin {account-id}.dkr.ecr.us-east-1.amazonaws.com
+```
+
+### Common Error Scenarios
+
+<Accordion title="Credential Errors">
+```
+Error: AWS credentials not configured
+→ Run: aws configure
+→ Or set: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+```
+</Accordion>
+
+<Accordion title="Permission Errors">
+```
+Error: Missing IAM permission: ecr:CreateRepository
+→ Required for: Creating ECR repository for workflow images
+→ Add policy: AmazonEC2ContainerRegistryFullAccess
+→ Or create repository manually with --ecr-repo
+```
+</Accordion>
+
+<Accordion title="Docker Not Running">
+```
+Error: Docker daemon not accessible
+→ Start Docker Desktop or Docker service
+→ Verify: docker ps
+```
+</Accordion>
+
+<Accordion title="Entry Point Validation Errors">
+```
+Error: Entry point missing main() function
+→ Add: def main(payload): ...
+→ Or use: --skip-entrypoint-validation
+```
+</Accordion>
+
+## Required AWS Permissions
+
+For full CLI functionality, see the [complete IAM policy](https://github.com/aws/nova-act-sdk/blob/main/src/nova_act/cli/README.md#complete-policy-all-features) in the CLI documentation.
+
+**Minimal policy for running workflows only:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "bedrock-agentcore:InvokeAgentRuntime",
+        "logs:StartLiveTail",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Parallel Sessions" icon="server" href="/guides/parallel-sessions">
+    Learn how to run multiple Nova Act instances concurrently
+  </Card>
+  <Card title="Authentication" icon="key" href="/guides/authentication-cookies">
+    Configure persistent browser state and cookies
+  </Card>
+  <Card title="Logging & Traces" icon="chart-line" href="/guides/logging-traces">
+    View traces and configure logging
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle errors and implement retry patterns
+  </Card>
+</CardGroup>

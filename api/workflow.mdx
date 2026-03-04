@@ -1,0 +1,329 @@
+---
+title: "Workflow"
+description: "Context manager for executing NovaAct workflows with AWS integration"
+---
+
+## Overview
+
+The `Workflow` class manages the lifecycle of a NovaAct workflow, including creating workflow runs, managing backend connections, and handling authentication with AWS services.
+
+## Constructor
+
+Create a new Workflow instance.
+
+```python
+from nova_act import Workflow
+
+workflow = Workflow(
+    model_id="nova-act-latest",
+    boto_session_kwargs={"region_name": "us-east-1"},
+    workflow_definition_name="my-workflow"
+)
+```
+
+### Parameters
+
+<ParamField path="model_id" type="str" required>
+  The model ID to use (e.g., "nova-act-latest"). For valid values of `model_id`, see the [model version selection guide](https://docs.aws.amazon.com/nova-act/latest/userguide/model-version-selection.html).
+</ParamField>
+
+<ParamField path="boto_session_kwargs" type="BotoSessionKwargs | None">
+  Optional kwargs to pass to `boto3.Session()` for AWS authentication. If not provided and no API key is given, credentials will be automatically loaded from environment variables (AWS_PROFILE, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.), or default to `{"region_name": "us-east-1"}`.
+  
+  <Expandable title="BotoSessionKwargs fields">
+    - `aws_access_key_id` (str): AWS access key ID
+    - `aws_secret_access_key` (str): AWS secret access key
+    - `aws_session_token` (str): AWS session token
+    - `region_name` (str): AWS region name
+    - `profile_name` (str): AWS profile name
+  </Expandable>
+</ParamField>
+
+<ParamField path="workflow_definition_name" type="str | None">
+  Required when using `boto_session_kwargs`. The name of the workflow definition. When using `nova_act_api_key`, a default name is used automatically.
+</ParamField>
+
+<ParamField path="boto_config" type="botocore.config.Config | None">
+  Optional botocore Config for the boto3 client.
+</ParamField>
+
+<ParamField path="log_group_name" type="str | None">
+  Optional CloudWatch log group name for workflow logs. Only supported when using `boto_session_kwargs`.
+</ParamField>
+
+<ParamField path="nova_act_api_key" type="str | None">
+  Optional API key for authentication. Cannot be used with `boto_session_kwargs`. If used, `workflow_definition_name` is ignored and a default name is used.
+</ParamField>
+
+### Authentication Methods
+
+Two authentication methods are supported:
+
+1. **AWS IAM credentials** (via `boto_session_kwargs`)
+2. **API key** (via `nova_act_api_key`)
+
+<Warning>
+  Only one authentication method should be provided. You cannot use both `boto_session_kwargs` and `nova_act_api_key` at the same time.
+</Warning>
+
+If neither is provided, AWS credentials will be automatically loaded from environment variables. If no environment credentials are found, a default boto3 Session will be created with us-east-1 region.
+
+## Usage
+
+### As a Context Manager
+
+```python
+from nova_act import Workflow, NovaAct
+
+with Workflow(
+    model_id="nova-act-latest",
+    boto_session_kwargs={"region_name": "us-east-1"},
+    workflow_definition_name="flight-booking"
+) as workflow:
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Book a flight from Boston to Seattle")
+```
+
+### With the @workflow Decorator
+
+The `@workflow` decorator provides a convenient way to manage workflow context automatically.
+
+```python
+from nova_act import workflow, NovaAct
+
+@workflow(
+    model_id="nova-act-latest",
+    boto_session_kwargs={"region_name": "us-east-1"},
+    workflow_definition_name="my-workflow"
+)
+def automate_booking():
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Book a flight")
+
+automate_booking()
+```
+
+## @workflow Decorator
+
+Decorate a function to manage it as a NovaAct Workflow. This decorator wraps a function to automatically create and manage a Workflow context.
+
+```python
+from nova_act import workflow
+
+@workflow(
+    model_id="nova-act-latest",
+    boto_session_kwargs={"region_name": "us-east-1"},
+    workflow_definition_name="my-workflow"
+)
+def my_workflow_function():
+    # Workflow logic here
+    pass
+```
+
+### Decorator Parameters
+
+<ParamField path="model_id" type="str" required>
+  The model ID to use (e.g., "nova-act-latest").
+</ParamField>
+
+<ParamField path="boto_session_kwargs" type="BotoSessionKwargs | None">
+  Optional kwargs to pass to boto3.Session() for AWS authentication.
+</ParamField>
+
+<ParamField path="workflow_definition_name" type="str | None">
+  Required when using boto_session_kwargs. The name of the workflow definition.
+</ParamField>
+
+<ParamField path="boto_config" type="Config | None">
+  Optional botocore Config for the boto3 client.
+</ParamField>
+
+<ParamField path="log_group_name" type="str | None">
+  Optional CloudWatch log group name for workflow logs. Only supported when using boto_session_kwargs.
+</ParamField>
+
+<ParamField path="nova_act_api_key" type="str | None">
+  Optional API key for authentication. Cannot be used with boto_session_kwargs.
+</ParamField>
+
+## Properties
+
+### workflow_definition_name
+
+Get the workflow definition name.
+
+```python
+name = workflow.workflow_definition_name
+```
+
+<ResponseField name="workflow_definition_name" type="str">
+  The workflow definition name.
+</ResponseField>
+
+### workflow_run_id
+
+Get the workflow run ID.
+
+```python
+run_id = workflow.workflow_run_id
+```
+
+<ResponseField name="workflow_run_id" type="str">
+  The workflow run ID.
+</ResponseField>
+
+<Note>Raises `ValueError` if the workflow has not been started (not in context).</Note>
+
+### workflow_run
+
+Get the WorkflowRun DTO for this workflow.
+
+```python
+run = workflow.workflow_run
+```
+
+<ResponseField name="workflow_run" type="WorkflowRun | None">
+  The WorkflowRun instance if the workflow is active, None otherwise.
+</ResponseField>
+
+### backend
+
+Get the workflow backend instance.
+
+```python
+backend = workflow.backend
+```
+
+<ResponseField name="backend" type="WorkflowBackend">
+  The workflow backend instance (StarburstBackend or SunburstBackend).
+</ResponseField>
+
+## Helper Functions
+
+### get_current_workflow()
+
+Get the current workflow for the execution context.
+
+```python
+from nova_act import get_current_workflow
+
+current = get_current_workflow()
+if current:
+    print(f"Running workflow: {current.workflow_definition_name}")
+```
+
+<ResponseField name="workflow" type="Workflow | None">
+  The current Workflow instance, or None if not in a workflow context.
+</ResponseField>
+
+## Examples
+
+### AWS IAM Authentication
+
+```python
+from nova_act import Workflow, NovaAct
+
+with Workflow(
+    model_id="nova-act-latest",
+    boto_session_kwargs={
+        "region_name": "us-east-1",
+        "profile_name": "my-aws-profile"
+    },
+    workflow_definition_name="flight-booking-workflow",
+    log_group_name="/aws/nova-act/workflows"
+) as workflow:
+    print(f"Workflow run ID: {workflow.workflow_run_id}")
+    
+    with NovaAct(starting_page="https://example.com") as nova:
+        result = nova.act("Book a flight from Boston to Seattle")
+        print(f"Completed in {result.metadata.num_steps_executed} steps")
+```
+
+### API Key Authentication
+
+```python
+from nova_act import Workflow, NovaAct
+import os
+
+with Workflow(
+    model_id="nova-act-latest",
+    nova_act_api_key=os.environ["NOVA_ACT_API_KEY"]
+) as workflow:
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Search for hotels in Seattle")
+```
+
+### Using Environment Variables
+
+```bash
+# Set AWS credentials
+export AWS_PROFILE=my-profile
+export AWS_REGION=us-east-1
+```
+
+```python
+from nova_act import Workflow, NovaAct
+
+# Automatically uses environment AWS credentials
+with Workflow(
+    model_id="nova-act-latest",
+    workflow_definition_name="my-workflow"
+) as workflow:
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Complete the form")
+```
+
+### With @workflow Decorator
+
+```python
+from nova_act import workflow, NovaAct
+
+@workflow(
+    model_id="nova-act-latest",
+    boto_session_kwargs={"region_name": "us-east-1"},
+    workflow_definition_name="data-extraction"
+)
+def extract_product_data():
+    with NovaAct(starting_page="https://example.com/products") as nova:
+        result = nova.act_get(
+            "Extract all product names and prices",
+            schema={
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "price": {"type": "number"}
+                    }
+                }
+            }
+        )
+        return result.parsed_response
+
+products = extract_product_data()
+print(f"Extracted {len(products)} products")
+```
+
+## Error Handling
+
+The Workflow class automatically updates the workflow run status based on execution:
+
+- **SUCCEEDED**: No exception occurred during execution
+- **FAILED**: An exception was raised during execution
+
+```python
+from nova_act import Workflow, NovaAct
+
+try:
+    with Workflow(
+        model_id="nova-act-latest",
+        boto_session_kwargs={"region_name": "us-east-1"},
+        workflow_definition_name="my-workflow"
+    ) as workflow:
+        with NovaAct(starting_page="https://example.com") as nova:
+            nova.act("Perform task")
+        # Status automatically set to SUCCEEDED
+except Exception as e:
+    # Status automatically set to FAILED
+    print(f"Workflow failed: {e}")
+```

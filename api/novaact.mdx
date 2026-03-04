@@ -1,0 +1,502 @@
+---
+title: "NovaAct"
+description: "Main client class for interacting with the Nova Act Agent"
+---
+
+## Overview
+
+The `NovaAct` class is the primary interface for building browser automation workflows with Amazon Nova Act. It manages browser sessions, executes natural language commands, and handles agent lifecycle.
+
+## Constructor
+
+Create a new NovaAct client instance.
+
+```python
+from nova_act import NovaAct
+
+nova = NovaAct(
+    starting_page="https://example.com",
+    headless=False,
+    screen_width=1600,
+    screen_height=900
+)
+```
+
+### Parameters
+
+<ParamField path="starting_page" type="str | None">
+  Starting web page for the browser window. Can be omitted if re-using an existing CDP page.
+</ParamField>
+
+<ParamField path="user_data_dir" type="str | None">
+  Path to Chrome data storage (cookies, cache, etc.). If not specified, will use a temp dir.
+  
+  <Note>If multiple NovaAct instances are used in the same process, each one must have its own `user_data_dir`.</Note>
+</ParamField>
+
+<ParamField path="clone_user_data_dir" type="bool" default="True">
+  If True, will make a copy of `user_data_dir` into a temp dir for each instance. This ensures the original is not modified and that each instance has its own user data directory.
+</ParamField>
+
+<ParamField path="actuator" type="ManagedActuatorType | BrowserActuatorBase" default="DefaultNovaLocalBrowserActuator">
+  Type or instance of a custom actuator. Deviations from NovaAct's standard observation and I/O formats may impact model performance.
+</ParamField>
+
+<ParamField path="profile_directory" type="str | None">
+  Name of the Chrome user profile. Only needed if using an existing, non-Default Chrome profile. Must be relative path within `user_data_dir`.
+</ParamField>
+
+<ParamField path="screen_width" type="int" default="1600">
+  Width of the screen for the playwright instance. This sets the window size, while screenshots taken on the page will be slightly smaller viewport size.
+  
+  <Warning>Changing the default might impact agent performance.</Warning>
+</ParamField>
+
+<ParamField path="screen_height" type="int" default="900">
+  Height of the screen for the playwright instance. This sets the window size, while screenshots taken on the page will be slightly smaller viewport size.
+  
+  <Warning>Changing the default might impact agent performance.</Warning>
+</ParamField>
+
+<ParamField path="ignore_screen_dims_check" type="bool" default="False">
+  By default, NovaAct will fail to act if screen width/height outside of the acceptable range are provided. Pass this flag to warn instead.
+</ParamField>
+
+<ParamField path="headless" type="bool" default="False">
+  Whether to launch the Playwright browser in headless mode. Can also be enabled with the `NOVA_ACT_HEADLESS` environment variable.
+</ParamField>
+
+<ParamField path="chrome_channel" type="str | None">
+  Browser channel to use (e.g., "chromium", "chrome-beta", "msedge"). Defaults to "chrome". Can also be specified via `NOVA_ACT_CHROME_CHANNEL` environment variable.
+</ParamField>
+
+<ParamField path="nova_act_api_key" type="str | None">
+  API key for interacting with NovaAct. Will override the `NOVA_ACT_API_KEY` environment variable.
+</ParamField>
+
+<ParamField path="playwright_instance" type="Playwright | None">
+  Add an existing Playwright instance for use.
+</ParamField>
+
+<ParamField path="tty" type="bool" default="True">
+  By default, NovaAct listens for ctrl+x signals from the terminal, allowing users to exit agent action while keeping the browser session open (ctrl+c will kill the browser). The feature requires an additional listener thread, so this variable allows users to disable the feature where a tty is not available. `NOVA_ACT_DISABLE_TTY` environment variable takes precedence over this value.
+</ParamField>
+
+<ParamField path="cdp_endpoint_url" type="str | None">
+  A Chrome DevTools Protocol (CDP) endpoint to connect to.
+</ParamField>
+
+<ParamField path="cdp_headers" type="dict[str, str] | None">
+  Additional HTTP headers to be sent when connecting to a CDP endpoint.
+</ParamField>
+
+<ParamField path="cdp_use_existing_page" type="bool" default="False">
+  If True, Nova Act will re-use an existing page from the CDP context rather than opening a new one.
+</ParamField>
+
+<ParamField path="user_agent" type="str | None">
+  Optionally override the user agent used by playwright.
+</ParamField>
+
+<ParamField path="logs_directory" type="str | None">
+  Output directory for video and agent run output. Will default to a temp dir.
+</ParamField>
+
+<ParamField path="record_video" type="bool" default="False">
+  Whether to record video of the browser session.
+</ParamField>
+
+<ParamField path="go_to_url_timeout" type="int | None">
+  Max wait time on initial page load in seconds.
+</ParamField>
+
+<ParamField path="ignore_https_errors" type="bool" default="False">
+  If True, ignore certificate validation errors for https urls.
+</ParamField>
+
+<ParamField path="security_options" type="SecurityOptions | None">
+  Set of security-related parameters that overwrite default agent behavior. See [SecurityOptions](/api/security-options) for details.
+</ParamField>
+
+<ParamField path="state_guardrail" type="GuardrailCallable | None">
+  A callback function that takes a `GuardrailInputState` and returns a `GuardrailDecision`. Called after taking an observation but before invoking step on the backend. If it returns `GuardrailDecision.BLOCK`, `act()` will raise `ActGuardrailsError`. See [Guardrails](/api/guardrails) for details.
+</ParamField>
+
+<ParamField path="stop_hooks" type="list[StopHook]" default="[]">
+  A list of stop hooks that are called when this object is stopped.
+</ParamField>
+
+<ParamField path="use_default_chrome_browser" type="bool" default="False">
+  Use the locally installed Chrome browser. Only works on MacOS.
+</ParamField>
+
+<ParamField path="proxy" type="dict[str, str] | None">
+  Proxy configuration for the browser. Should contain `server`, `username`, and `password` keys.
+</ParamField>
+
+<ParamField path="human_input_callbacks" type="HumanInputCallbacksBase | None">
+  An implementation of human input callbacks. If not provided, a request for human input tool will not be made.
+</ParamField>
+
+<ParamField path="tools" type="list[ActionType] | None">
+  A list of client-provided tools. Use the `@tool` decorator to create tools. See [Tools](/api/tools) for details.
+</ParamField>
+
+<ParamField path="workflow" type="Workflow | None">
+  A Workflow instance to associate with this NovaAct session. See [Workflow](/api/workflow) for details.
+</ParamField>
+
+## Methods
+
+### start()
+
+Start the NovaAct client and launch the browser.
+
+```python
+nova = NovaAct(starting_page="https://example.com")
+nova.start()
+```
+
+<Note>If using as a context manager (`with NovaAct(...) as nova:`), `start()` is called automatically.</Note>
+
+### act()
+
+Execute a natural language command in the browser.
+
+```python
+result = nova.act("Click the login button")
+```
+
+#### Parameters
+
+<ParamField path="prompt" type="str" required>
+  The natural language task to actuate on the web browser.
+</ParamField>
+
+<ParamField path="timeout" type="int | None">
+  The timeout (in seconds) for the task to actuate.
+</ParamField>
+
+<ParamField path="max_steps" type="int | None" default="30">
+  Configure the maximum number of steps (browser actuations) `act()` will take before giving up on the task. Use this to make sure the agent doesn't get stuck forever trying different paths.
+</ParamField>
+
+<ParamField path="model_temperature" type="float | None">
+  Temperature parameter for model generation.
+</ParamField>
+
+<ParamField path="model_top_k" type="int | None">
+  Top-k parameter for model generation.
+</ParamField>
+
+<ParamField path="model_seed" type="int | None">
+  Seed for reproducible model generation.
+</ParamField>
+
+<ParamField path="observation_delay_ms" type="int | None">
+  Additional delay in milliseconds before taking an observation of the page.
+</ParamField>
+
+<ParamField path="schema" type="Mapping[str, JsonValue] | None" deprecated>
+  An optional jsonschema for the output to adhere to.
+  
+  <Warning>Deprecated: Use `act_get()` instead for structured responses.</Warning>
+</ParamField>
+
+#### Returns
+
+<ResponseField name="result" type="ActResult">
+  Contains metadata about the execution. See [ActResult](/api/act-result) for details.
+</ResponseField>
+
+#### Raises
+
+- `ActError` - Base class for all act execution errors
+- `ValidationFailed` - Invalid input parameters
+- `ClientNotStarted` - Client was not started before calling act()
+
+#### Example
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act(
+        "Find flights from Boston to Seattle",
+        timeout=120,
+        max_steps=50
+    )
+    print(f"Completed in {result.metadata.num_steps_executed} steps")
+```
+
+### act_get()
+
+Execute a natural language command and return structured data.
+
+```python
+result = nova.act_get(
+    "How many search results are on this page?",
+    schema={"type": "integer"}
+)
+print(result.parsed_response)  # Returns an integer
+```
+
+#### Parameters
+
+<ParamField path="prompt" type="str" required>
+  The natural language task to actuate on the web browser.
+</ParamField>
+
+<ParamField path="schema" type="Mapping[str, JsonValue]" default="STRING_SCHEMA">
+  A jsonschema that the output should adhere to. Defaults to `{"type": "string"}` when not specified.
+</ParamField>
+
+<ParamField path="timeout" type="int | None">
+  The timeout (in seconds) for the task to actuate.
+</ParamField>
+
+<ParamField path="max_steps" type="int | None" default="30">
+  Configure the maximum number of steps (browser actuations) before giving up.
+</ParamField>
+
+<ParamField path="model_temperature" type="float | None">
+  Temperature parameter for model generation.
+</ParamField>
+
+<ParamField path="model_top_k" type="int | None">
+  Top-k parameter for model generation.
+</ParamField>
+
+<ParamField path="model_seed" type="int | None">
+  Seed for reproducible model generation.
+</ParamField>
+
+<ParamField path="observation_delay_ms" type="int | None">
+  Additional delay in milliseconds before taking an observation of the page.
+</ParamField>
+
+#### Returns
+
+<ResponseField name="result" type="ActGetResult">
+  Contains the structured response and metadata. See [ActGetResult](/api/act-result) for details.
+</ResponseField>
+
+#### Raises
+
+- `ActError` - Base class for all act execution errors
+- `ActInvalidModelGenerationError` - Result did not match expected schema
+- `ValidationFailed` - Invalid input parameters
+- `ClientNotStarted` - Client was not started before calling act_get()
+
+#### Example
+
+```python
+from nova_act import NovaAct, STRING_SCHEMA
+
+with NovaAct(starting_page="https://example.com") as nova:
+    # Get a string response
+    result = nova.act_get(
+        "What is the title of this page?",
+        schema=STRING_SCHEMA
+    )
+    print(result.parsed_response)
+    
+    # Get structured data
+    result = nova.act_get(
+        "How many products are on this page?",
+        schema={"type": "integer"}
+    )
+    count = result.parsed_response
+```
+
+<Note>
+  Use `act_get()` when you need to extract information from the browser. Use `act()` when you only need to perform actions without extracting data.
+</Note>
+
+### stop()
+
+Stop the NovaAct client and close the browser.
+
+```python
+nova.stop()
+```
+
+<Note>If using as a context manager, `stop()` is called automatically when exiting the context.</Note>
+
+### go_to_url()
+
+Navigate to a specific URL and wait for the page to settle.
+
+```python
+nova.go_to_url("https://example.com")
+```
+
+#### Parameters
+
+<ParamField path="url" type="str" required>
+  The URL to navigate to.
+</ParamField>
+
+#### Raises
+
+- `ClientNotStarted` - Client was not started before calling go_to_url()
+- `ValidationFailed` - Invalid URL or URL blocked by security options
+
+### get_page()
+
+Get a particular playwright page by index or the currently actuating page.
+
+```python
+page = nova.get_page(0)  # Get first page
+page = nova.get_page()    # Get current page (index=-1)
+```
+
+#### Parameters
+
+<ParamField path="index" type="int" default="-1">
+  Index of the page to retrieve. Use -1 for the currently actuating page.
+</ParamField>
+
+#### Returns
+
+<ResponseField name="page" type="playwright.Page">
+  The Playwright Page object.
+</ResponseField>
+
+#### Raises
+
+- `ClientNotStarted` - Client was not started
+- `ValidationFailed` - Actuator is not of type PlaywrightPageManagerBase
+
+<Note>Only available if the provided actuator is of type `PlaywrightPageManagerBase`. The order of pages might not reflect their tab order if they have been moved.</Note>
+
+### register_stop_hook()
+
+Register a stop hook that will be called during `stop()`.
+
+```python
+def cleanup_hook(nova: NovaAct) -> None:
+    print("Cleaning up...")
+
+nova.register_stop_hook(cleanup_hook)
+```
+
+#### Parameters
+
+<ParamField path="hook" type="StopHook" required>
+  The stop hook to register. Must implement the StopHook protocol.
+</ParamField>
+
+### unregister_stop_hook()
+
+Unregister a previously registered stop hook.
+
+```python
+nova.unregister_stop_hook(cleanup_hook)
+```
+
+#### Parameters
+
+<ParamField path="hook" type="StopHook" required>
+  The stop hook to unregister.
+</ParamField>
+
+## Properties
+
+### started
+
+Check if the client has been started.
+
+```python
+if nova.started:
+    print("Client is running")
+```
+
+<ResponseField name="started" type="bool">
+  Returns True if the actuator is started and session ID is set.
+</ResponseField>
+
+### page
+
+Get the current playwright page.
+
+```python
+page = nova.page
+page.screenshot(path="screenshot.png")
+```
+
+<ResponseField name="page" type="playwright.Page">
+  The Playwright Page on which the SDK is currently actuating.
+</ResponseField>
+
+<Note>To get a specific page, use `nova.pages` to list all pages, then fetch with `nova.get_page(i)`.</Note>
+
+### pages
+
+Get all playwright pages.
+
+```python
+all_pages = nova.pages
+print(f"Total pages: {len(all_pages)}")
+```
+
+<ResponseField name="pages" type="list[playwright.Page]">
+  List of all Playwright Page objects in the browser context.
+</ResponseField>
+
+<Note>The order might not reflect tab order in the window if pages have been moved.</Note>
+
+### dispatcher
+
+Get the ActDispatcher for actuation.
+
+```python
+dispatcher = nova.dispatcher
+```
+
+<ResponseField name="dispatcher" type="ActDispatcher">
+  The dispatcher instance for sending act prompts to the browser.
+</ResponseField>
+
+## Context Manager
+
+The `NovaAct` class can be used as a context manager for automatic lifecycle management.
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.act("Click the login button")
+# Browser is automatically closed when exiting the context
+```
+
+## Complete Example
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+# Initialize with security options
+security = SecurityOptions(
+    allowed_file_upload_paths=["/home/user/documents/*"],
+    allowed_file_open_paths=["/home/user/files/*"]
+)
+
+with NovaAct(
+    starting_page="https://example.com",
+    headless=False,
+    screen_width=1920,
+    screen_height=1080,
+    security_options=security,
+    record_video=True
+) as nova:
+    # Execute commands
+    nova.act("Search for flights from Boston to Seattle")
+    
+    # Extract structured data
+    result = nova.act_get(
+        "What is the price of the cheapest flight?",
+        schema={"type": "number"}
+    )
+    
+    print(f"Cheapest flight: ${result.parsed_response}")
+    print(f"Steps executed: {result.metadata.num_steps_executed}")
+    print(f"Time worked: {result.metadata.time_worked_s}s")
+```

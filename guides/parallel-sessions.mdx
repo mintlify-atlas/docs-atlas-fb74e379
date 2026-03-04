@@ -1,0 +1,348 @@
+---
+title: 'Running Parallel Sessions'
+description: 'Execute multiple NovaAct instances concurrently for parallel browser automation'
+---
+
+## Overview
+
+Nova Act supports running multiple browser sessions in parallel. This enables powerful patterns like map-reduce for web automation, where you can distribute tasks across multiple browsers and aggregate results.
+
+<Note>
+One `NovaAct` instance can only actuate one browser at a time. However, multiple `NovaAct` instances can run concurrently as they are lightweight.
+</Note>
+
+## Basic Parallel Execution
+
+### Using ThreadPoolExecutor
+
+The recommended approach for parallel sessions is using Python's `ThreadPoolExecutor`:
+
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from nova_act import NovaAct
+
+def process_item(item):
+    """Process a single item in its own browser session."""
+    with NovaAct(
+        starting_page="https://example.com",
+        headless=True,  # Run headless for parallel sessions
+    ) as nova:
+        result = nova.act_get(f"Search for {item} and return the price")
+        return result.response
+
+items = ["laptop", "mouse", "keyboard"]
+
+with ThreadPoolExecutor() as executor:
+    future_to_item = {
+        executor.submit(process_item, item): item 
+        for item in items
+    }
+    
+    results = {}
+    for future in as_completed(future_to_item.keys()):
+        item = future_to_item[future]
+        try:
+            result = future.result()
+            results[item] = result
+            print(f"✓ {item}: {result}")
+        except Exception as e:
+            print(f"✗ {item} failed: {e}")
+```
+
+## Real-World Example: Apartment Search with Commute Calculation
+
+This example searches for apartments and calculates commute times in parallel:
+
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Literal
+import pandas as pd
+from pydantic import BaseModel
+from nova_act import NovaAct
+
+class Apartment(BaseModel):
+    address: str
+    price: str
+    beds: str
+    baths: str
+
+class ApartmentList(BaseModel):
+    apartments: list[Apartment]
+
+class TransitCommute(BaseModel):
+    commute_time_hours: int
+    commute_time_minutes: int
+    commute_distance_miles: float
+
+def add_commute_distance(
+    apartment: Apartment,
+    transit_city: str,
+    transport_mode: Literal["walking", "biking"],
+    maps_url: str,
+) -> TransitCommute | None:
+    """Calculate commute time for a single apartment."""
+    with NovaAct(
+        starting_page=maps_url,
+        headless=True,  # Run in headless mode for parallel execution
+    ) as nova:
+        result = nova.act_get(
+            f"Search for {transit_city} transit station and press enter. "
+            "Click Directions. "
+            f"Enter '{apartment.address}' into the starting point field and press enter. "
+            f"Return the shortest {transport_mode} time and distance.",
+            schema=TransitCommute.model_json_schema(),
+        )
+        return TransitCommute.model_validate(result.parsed_response)
+
+def main():
+    apartment_url = "https://example-apartments.com"
+    maps_url = "https://example-maps.com"
+    transit_city = "Downtown Station"
+    transport_mode = "walking"
+    
+    # Step 1: Search for apartments (synchronous, in headed mode)
+    all_apartments = []
+    
+    with NovaAct(
+        starting_page=apartment_url,
+        headless=False,  # Show browser for initial search
+    ) as nova:
+        nova.act(
+            "Close any cookie banners. "
+            f"Search for apartments near {transit_city}, "
+            "then filter for 2 bedrooms and 1 bathroom."
+        )
+        
+        result = nova.act_get(
+            "Return the currently visible list of apartments",
+            schema=ApartmentList.model_json_schema(),
+        )
+        apartment_list = ApartmentList.model_validate(result.parsed_response)
+        all_apartments.extend(apartment_list.apartments)
+    
+    print(f"✓ Found {len(all_apartments)} apartments")
+    
+    # Step 2: Calculate commute times in parallel (asynchronous, headless)
+    apartments_with_commute = []
+    
+    with ThreadPoolExecutor() as executor:
+        future_to_apartment = {
+            executor.submit(
+                add_commute_distance,
+                apartment,
+                transit_city,
+                transport_mode,
+                maps_url,
+            ): apartment
+            for apartment in all_apartments
+        }
+        
+        for future in as_completed(future_to_apartment.keys()):
+            apartment = future_to_apartment[future]
+            try:
+                commute_details = future.result()
+                if commute_details:
+                    apartments_with_commute.append(
+                        apartment.model_dump() | commute_details.model_dump()
+                    )
+            except Exception as e:
+                print(f"Failed to get commute for {apartment.address}: {e}")
+                apartments_with_commute.append(apartment.model_dump())
+    
+    # Step 3: Display results sorted by commute time
+    apartments_df = pd.DataFrame(apartments_with_commute)
+    sorted_apartments = apartments_df.sort_values(
+        by=["commute_time_hours", "commute_time_minutes", "commute_distance_miles"]
+    )
+    
+    print(f"\n✓ Apartments sorted by {transport_mode} time:")
+    print(f"\n{sorted_apartments.to_string()}\n")
+
+if __name__ == "__main__":
+    main()
+```
+
+## User Data Directory Considerations
+
+When running multiple NovaAct instances in parallel, each must have its own user data directory:
+
+### Option 1: Let NovaAct Create Temp Directories (Recommended)
+
+```python
+# Don't specify user_data_dir - each instance gets its own temp dir
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.act("Do something")
+```
+
+### Option 2: Clone a Shared User Data Directory
+
+```python
+# Clone the shared directory for each instance
+shared_user_data_dir = "/path/to/shared/profile"
+
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir=shared_user_data_dir,
+    clone_user_data_dir=True,  # Each instance gets its own copy
+) as nova:
+    nova.act("Do something")
+```
+
+<Warning>
+If running multiple NovaAct instances in parallel with a shared `user_data_dir`, you MUST set `clone_user_data_dir=True`. Otherwise, browser instances will conflict.
+</Warning>
+
+## Multi-threading with Workflows
+
+When using the Workflow context manager with threads:
+
+```python
+from threading import Thread
+from nova_act import NovaAct, Workflow
+
+def multi_threaded_helper(workflow: Workflow):
+    """Helper function that runs in a separate thread."""
+    with NovaAct(
+        starting_page="https://example.com",
+        workflow=workflow,  # Pass workflow explicitly
+    ) as nova:
+        nova.act("Process data")
+
+with Workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest"
+) as workflow:
+    # Start thread with workflow context
+    t = Thread(target=multi_threaded_helper, args=(workflow,))
+    t.start()
+    t.join()
+```
+
+### Using the Workflow Decorator with Threads
+
+When using the `@workflow` decorator, you need to copy the context:
+
+```python
+from contextvars import copy_context
+from threading import Thread
+from nova_act import NovaAct, workflow
+
+def multi_threaded_helper():
+    """Helper function that runs in a separate thread."""
+    with NovaAct(starting_page="https://example.com") as nova:
+        nova.act("Process data")
+
+@workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest",
+)
+def multi_threaded_workflow():
+    # Copy context for thread
+    ctx = copy_context()
+    t = Thread(target=ctx.run, args=(multi_threaded_helper,))
+    t.start()
+    t.join()
+
+multi_threaded_workflow()
+```
+
+Alternatively, use `get_current_workflow()` to manually inject context:
+
+```python
+from threading import Thread
+from nova_act import NovaAct, get_current_workflow, workflow
+
+def multi_threaded_helper(workflow_obj):
+    with NovaAct(
+        starting_page="https://example.com",
+        workflow=workflow_obj,
+    ) as nova:
+        nova.act("Process data")
+
+@workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest",
+)
+def multi_threaded_workflow():
+    # Get current workflow and pass to thread
+    t = Thread(
+        target=multi_threaded_helper, 
+        args=(get_current_workflow(),)
+    )
+    t.start()
+    t.join()
+
+multi_threaded_workflow()
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Headless Mode" icon="ghost">
+    Run parallel sessions in headless mode to reduce resource usage:
+    
+    ```python
+    with NovaAct(starting_page="...", headless=True) as nova:
+        # Process in background
+    ```
+  </Accordion>
+
+  <Accordion title="Handle Errors Gracefully" icon="shield-check">
+    Always use try-except blocks when processing parallel results:
+    
+    ```python
+    for future in as_completed(futures):
+        try:
+            result = future.result()
+            process_result(result)
+        except Exception as e:
+            print(f"Task failed: {e}")
+            # Handle failure appropriately
+    ```
+  </Accordion>
+
+  <Accordion title="Limit Concurrency" icon="gauge-high">
+    Don't overwhelm your system or target websites:
+    
+    ```python
+    # Limit to 5 concurrent sessions
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit tasks
+    ```
+  </Accordion>
+
+  <Accordion title="Monitor Resource Usage" icon="chart-line">
+    Each browser instance consumes CPU and memory. Monitor system resources and adjust concurrency accordingly.
+  </Accordion>
+</AccordionGroup>
+
+## Limitations
+
+<Warning>
+Multi-processing is not currently supported. The `Workflow` construct maintains a boto3 Session and Client as instance variables, which are not pickle-able. Use threading instead.
+</Warning>
+
+## Performance Tips
+
+1. **Start simple**: Begin with 2-3 parallel sessions and scale up based on performance
+2. **Profile your workload**: Some tasks may not benefit from parallelization
+3. **Consider rate limiting**: Respect target website rate limits
+4. **Use result aggregation**: Collect results as they complete with `as_completed()`
+5. **Clean up properly**: Always use context managers to ensure browsers close properly
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication & Cookies" icon="key" href="/guides/authentication-cookies">
+    Configure persistent browser state for parallel sessions
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Implement robust error handling for parallel workflows
+  </Card>
+  <Card title="Security" icon="shield" href="/guides/security">
+    Secure your parallel automation workflows
+  </Card>
+  <Card title="Logging" icon="chart-line" href="/guides/logging-traces">
+    Track and debug parallel session execution
+  </Card>
+</CardGroup>

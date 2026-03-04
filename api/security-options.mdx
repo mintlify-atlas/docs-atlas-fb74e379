@@ -1,0 +1,270 @@
+---
+title: "SecurityOptions"
+description: "Security-related configuration for file access and uploads"
+---
+
+## Overview
+
+The `SecurityOptions` class provides security controls for NovaAct, allowing you to restrict file system access and file uploads. By default, all file operations are disabled for security.
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+security = SecurityOptions(
+    allowed_file_open_paths=["/home/user/documents/*"],
+    allowed_file_upload_paths=["/home/user/uploads/*"]
+)
+
+with NovaAct(starting_page="https://example.com", security_options=security) as nova:
+    nova.act("Upload the file to the form")
+```
+
+## Constructor
+
+Create a SecurityOptions instance.
+
+```python
+from nova_act import SecurityOptions
+
+security = SecurityOptions(
+    allowed_file_open_paths=[],
+    allowed_file_upload_paths=[]
+)
+```
+
+## Fields
+
+<ParamField path="allowed_file_open_paths" type="list[str]" default="[]">
+  List of local file:// paths which the agent is allowed to navigate to. By default, all file:// URLs are blocked.
+  
+  **Examples:**
+  - `["/home/nova-act/shared/*"]` - Allow access to files in a specific directory
+  - `["/home/nova-act/shared/file.txt"]` - Allow access to a specific filepath
+  - `["*"]` - Enable file:// access to all paths
+  - `[]` - Disable file access (Default)
+</ParamField>
+
+<ParamField path="allowed_file_upload_paths" type="list[str]" default="[]">
+  List of local filepaths from which file uploads are permitted. By default, all file uploads are disabled.
+  
+  **Examples:**
+  - `["/home/nova-act/shared/*"]` - Allow uploads from specific directory
+  - `["/home/nova-act/shared/file.txt"]` - Allow uploads with specific filepath
+  - `["*"]` - Enable file uploads from all paths
+  - `[]` - Disable file uploads (Default)
+</ParamField>
+
+<ParamField path="allow_file_urls" type="bool" default="False" deprecated>
+  Deprecated boolean flag for enabling file:// URLs. Use `allowed_file_open_paths` instead.
+  
+  <Warning>
+    This field is deprecated. Use `allowed_file_open_paths` for fine-grained control over file access.
+  </Warning>
+</ParamField>
+
+## Path Patterns
+
+Both `allowed_file_open_paths` and `allowed_file_upload_paths` support glob patterns:
+
+- **Exact path**: `"/home/user/file.txt"` - Matches only this specific file
+- **Wildcard directory**: `"/home/user/documents/*"` - Matches all files in this directory
+- **Recursive wildcard**: `"/home/user/**/*.pdf"` - Matches all PDF files recursively
+- **Allow all**: `["*"]` - Matches any path (use with caution)
+
+## Examples
+
+### Allow File Navigation
+
+Allow the agent to navigate to local HTML files:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+security = SecurityOptions(
+    allowed_file_open_paths=[
+        "/home/user/reports/*.html",
+        "/home/user/docs/index.html"
+    ]
+)
+
+with NovaAct(starting_page="file:///home/user/reports/summary.html", 
+             security_options=security) as nova:
+    nova.act("Navigate to the next report")
+```
+
+### Allow File Uploads
+
+Allow the agent to upload files from specific directories:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+security = SecurityOptions(
+    allowed_file_upload_paths=[
+        "/home/user/uploads/*",
+        "/home/user/documents/*.pdf"
+    ]
+)
+
+with NovaAct(starting_page="https://example.com/upload", 
+             security_options=security) as nova:
+    nova.act("Upload the report.pdf file")
+```
+
+### Combined File Access
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+security = SecurityOptions(
+    allowed_file_open_paths=["/home/user/pages/*"],
+    allowed_file_upload_paths=["/home/user/uploads/*"]
+)
+
+with NovaAct(starting_page="file:///home/user/pages/form.html",
+             security_options=security) as nova:
+    nova.act("Fill out the form and upload the document")
+```
+
+### Unrestricted Access (Development Only)
+
+<Warning>
+  Using `["*"]` allows access to all files on the system. Only use this in trusted development environments.
+</Warning>
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+# Development only - allows all file access
+security = SecurityOptions(
+    allowed_file_open_paths=["*"],
+    allowed_file_upload_paths=["*"]
+)
+
+with NovaAct(starting_page="https://example.com", security_options=security) as nova:
+    nova.act("Upload any file from the system")
+```
+
+### No File Access (Default)
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+# Explicit default - all file operations blocked
+security = SecurityOptions(
+    allowed_file_open_paths=[],
+    allowed_file_upload_paths=[]
+)
+
+# Or simply omit security_options
+with NovaAct(starting_page="https://example.com") as nova:
+    # File uploads and file:// URLs will be blocked
+    nova.act("Complete the form")
+```
+
+## Validation
+
+The SecurityOptions class automatically validates path patterns when initialized:
+
+```python
+from nova_act import SecurityOptions, ValidationFailed
+
+try:
+    # Invalid path pattern will raise ValidationFailed
+    security = SecurityOptions(
+        allowed_file_open_paths=["invalid//path"]
+    )
+except ValidationFailed as e:
+    print(f"Invalid path: {e}")
+```
+
+## Security Best Practices
+
+<Tip>
+  **Principle of Least Privilege**: Only allow access to the specific directories and files your workflow needs. Start with empty lists and add paths as required.
+</Tip>
+
+<Tip>
+  **Use Specific Paths**: Prefer specific file paths or directory patterns over wildcards. For example, use `"/home/user/uploads/*.pdf"` instead of `"/home/user/*"`.
+</Tip>
+
+<Warning>
+  **Production Deployments**: Never use `["*"]` in production. Always explicitly list the directories and file types your workflow requires.
+</Warning>
+
+<Warning>
+  **Validate File Sources**: Even with security options set, validate that uploaded or accessed files are safe and expected by your application logic.
+</Warning>
+
+## Error Handling
+
+When the agent attempts to access a blocked file or URL, it will raise an error:
+
+```python
+from nova_act import NovaAct, ActError
+
+# No file access allowed (default)
+with NovaAct(starting_page="https://example.com") as nova:
+    try:
+        nova.go_to_url("file:///etc/passwd")  # Blocked
+    except ActError as e:
+        print(f"Access denied: {e}")
+```
+
+## Migration from Deprecated allow_file_urls
+
+If you were using the deprecated `allow_file_urls` parameter:
+
+```python
+# Old (deprecated)
+security = SecurityOptions(allow_file_urls=True)
+
+# New (recommended)
+security = SecurityOptions(allowed_file_open_paths=["*"])
+```
+
+For better security, replace the wildcard with specific paths:
+
+```python
+# Better - specific paths only
+security = SecurityOptions(
+    allowed_file_open_paths=[
+        "/home/user/workspace/*.html",
+        "/home/user/reports/*.pdf"
+    ]
+)
+```
+
+## Complete Example
+
+```python
+from nova_act import NovaAct, SecurityOptions
+import os
+
+# Define allowed paths
+upload_dir = os.path.expanduser("~/uploads")
+docs_dir = os.path.expanduser("~/documents")
+
+# Configure security
+security = SecurityOptions(
+    allowed_file_open_paths=[
+        f"{docs_dir}/*.html",
+        f"{docs_dir}/forms/*.html"
+    ],
+    allowed_file_upload_paths=[
+        f"{upload_dir}/*.pdf",
+        f"{upload_dir}/*.docx"
+    ]
+)
+
+# Use with NovaAct
+with NovaAct(
+    starting_page=f"file://{docs_dir}/form.html",
+    security_options=security,
+    headless=False
+) as nova:
+    # Agent can only:
+    # - Navigate to HTML files in docs_dir
+    # - Upload PDF and DOCX files from upload_dir
+    nova.act("Fill out the form and upload the document")
+```

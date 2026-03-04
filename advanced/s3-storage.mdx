@@ -1,0 +1,441 @@
+---
+title: S3 storage
+description: Store session data, traces, and recordings in Amazon S3
+---
+
+Nova Act can automatically upload session data (HTML traces, screenshots, videos, etc.) to your Amazon S3 bucket. This is useful for long-term storage, compliance, debugging, and sharing traces with your team.
+
+## Overview
+
+The `S3Writer` utility is a convenience class that handles uploading session files to S3 when your Nova Act session ends. It integrates with Nova Act's stop hooks mechanism to automatically upload all session artifacts.
+
+### What gets uploaded
+
+- HTML trace files
+- Screenshots captured during execution
+- Video recordings (if enabled)
+- JSON metadata
+- Session logs
+
+## Quick start
+
+```python
+import boto3
+from nova_act import NovaAct
+from nova_act.util.s3_writer import S3Writer
+
+# Create boto3 session
+boto_session = boto3.Session()
+
+# Create S3Writer
+s3_writer = S3Writer(
+    boto_session=boto_session,
+    s3_bucket_name="my-bucket",
+    s3_prefix="nova-act/sessions/"
+)
+
+# Use with NovaAct
+with NovaAct(
+    starting_page="https://example.com",
+    boto_session=boto_session,
+    stop_hooks=[s3_writer]
+) as nova:
+    nova.act("Complete the task")
+
+# Files are automatically uploaded when the session ends
+```
+
+## S3Writer parameters
+
+<ParamField path="boto_session" type="boto3.Session" required>
+  A configured boto3 session with S3 permissions
+</ParamField>
+
+<ParamField path="s3_bucket_name" type="str" required>
+  The name of your S3 bucket
+</ParamField>
+
+<ParamField path="s3_prefix" type="str">
+  Optional prefix (folder path) for uploaded files
+  
+  Example: `"nova-act/sessions/"`
+</ParamField>
+
+<ParamField path="metadata" type="Dict[str, str]">
+  Optional metadata to attach to S3 objects
+  
+  Example: `{"Project": "MyProject", "Environment": "Production"}`
+</ParamField>
+
+## Complete example
+
+```python
+import boto3
+from datetime import datetime
+from nova_act import NovaAct, Workflow
+from nova_act.util.s3_writer import S3Writer
+
+def run_workflow_with_s3_storage():
+    # Create boto3 session with explicit credentials
+    boto_session = boto3.Session(
+        region_name="us-east-1",
+        profile_name="my-aws-profile"  # Optional
+    )
+    
+    # Create S3Writer with metadata
+    s3_writer = S3Writer(
+        boto_session=boto_session,
+        s3_bucket_name="my-nova-act-logs",
+        s3_prefix=f"workflows/{datetime.now().strftime('%Y/%m/%d')}/",
+        metadata={
+            "Project": "FlightBooking",
+            "Environment": "Production",
+            "Team": "Automation"
+        }
+    )
+    
+    # Run workflow with S3 storage
+    with Workflow(
+        workflow_definition_name="flight-booking",
+        model_id="nova-act-latest",
+        boto_session_kwargs={"region_name": "us-east-1"}
+    ) as workflow:
+        with NovaAct(
+            starting_page="https://flights.example.com",
+            workflow=workflow,
+            boto_session=boto_session,
+            stop_hooks=[s3_writer],
+            record_video=True  # Include video in uploads
+        ) as nova:
+            result = nova.act("Search for flights from Boston to Seattle")
+            print(f"Task completed: {result.response}")
+    
+    print("Session data uploaded to S3")
+
+if __name__ == "__main__":
+    run_workflow_with_s3_storage()
+```
+
+## S3 bucket structure
+
+Files are uploaded with the following structure:
+
+```
+my-bucket/
+└── nova-act/
+    └── sessions/
+        └── 2024/
+            └── 03/
+                └── 15/
+                    └── session_abc123/
+                        ├── act_123_output.html
+                        ├── act_123_metadata.json
+                        ├── screenshot_001.png
+                        ├── screenshot_002.png
+                        └── video.mp4
+```
+
+Each session gets its own directory under your specified prefix.
+
+## Required AWS permissions
+
+Your IAM user or role needs these S3 permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::my-bucket"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:PutObjectAcl"
+      ],
+      "Resource": "arn:aws:s3:::my-bucket/nova-act/*"
+    }
+  ]
+}
+```
+
+<Tip>
+  Use the most restrictive resource ARN possible. Include your prefix in the resource path.
+</Tip>
+
+## Multiple stop hooks
+
+You can register multiple stop hooks:
+
+```python
+from nova_act import NovaAct
+from nova_act.util.s3_writer import S3Writer
+
+def custom_cleanup_hook(nova_act_instance):
+    """Custom hook for additional cleanup."""
+    print(f"Session {nova_act_instance.session_id} completed")
+    # Send notification, update database, etc.
+
+s3_writer = S3Writer(
+    boto_session=boto3.Session(),
+    s3_bucket_name="my-bucket"
+)
+
+with NovaAct(
+    starting_page="https://example.com",
+    stop_hooks=[s3_writer, custom_cleanup_hook]
+) as nova:
+    nova.act("Complete the task")
+
+# Both hooks are called when session ends
+```
+
+## Organizing by workflow
+
+Organize uploads by workflow name:
+
+```python
+def create_s3_writer_for_workflow(workflow_name: str) -> S3Writer:
+    """Create S3Writer with workflow-specific prefix."""
+    return S3Writer(
+        boto_session=boto3.Session(),
+        s3_bucket_name="my-nova-act-logs",
+        s3_prefix=f"workflows/{workflow_name}/",
+        metadata={
+            "WorkflowName": workflow_name,
+            "Timestamp": datetime.now().isoformat()
+        }
+    )
+
+# Use different prefixes for different workflows
+flight_writer = create_s3_writer_for_workflow("flight-booking")
+hotel_writer = create_s3_writer_for_workflow("hotel-booking")
+```
+
+## Accessing uploaded files
+
+### List session files
+
+```python
+import boto3
+
+s3 = boto3.client('s3')
+
+# List all session directories
+response = s3.list_objects_v2(
+    Bucket='my-bucket',
+    Prefix='nova-act/sessions/',
+    Delimiter='/'
+)
+
+for prefix in response.get('CommonPrefixes', []):
+    session_dir = prefix['Prefix']
+    print(f"Session: {session_dir}")
+```
+
+### Download trace file
+
+```python
+import boto3
+
+s3 = boto3.client('s3')
+
+# Download HTML trace
+s3.download_file(
+    Bucket='my-bucket',
+    Key='nova-act/sessions/session_abc123/act_123_output.html',
+    Filename='local_trace.html'
+)
+
+print("Trace downloaded to local_trace.html")
+```
+
+### Generate presigned URL
+
+Share traces with team members using presigned URLs:
+
+```python
+import boto3
+
+s3 = boto3.client('s3')
+
+# Generate URL valid for 1 hour
+url = s3.generate_presigned_url(
+    'get_object',
+    Params={
+        'Bucket': 'my-bucket',
+        'Key': 'nova-act/sessions/session_abc123/act_123_output.html'
+    },
+    ExpiresIn=3600
+)
+
+print(f"Share this URL: {url}")
+```
+
+## Lifecycle management
+
+Set up S3 lifecycle rules to manage storage costs:
+
+```json
+{
+  "Rules": [
+    {
+      "Id": "ArchiveOldSessions",
+      "Status": "Enabled",
+      "Prefix": "nova-act/sessions/",
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        }
+      ],
+      "Expiration": {
+        "Days": 365
+      }
+    }
+  ]
+}
+```
+
+This configuration:
+- Moves files to Infrequent Access after 30 days
+- Archives to Glacier after 90 days
+- Deletes files after 1 year
+
+## Troubleshooting
+
+<Accordion title="No files uploaded to S3">
+  Check that:
+  - S3Writer is included in `stop_hooks` list
+  - NovaAct session completes successfully (stop hooks only run on success)
+  - IAM permissions are correct
+  - Bucket exists and is accessible
+  - Session generates files (check logs_directory locally)
+  
+  Test permissions:
+  ```python
+  boto3.client('s3').head_bucket(Bucket='my-bucket')
+  ```
+</Accordion>
+
+<Accordion title="Access denied errors">
+  Verify:
+  - IAM user/role has `s3:PutObject` permission
+  - Bucket policy allows uploads
+  - KMS key permissions (if bucket is encrypted)
+  - Correct bucket region
+  
+  Test with AWS CLI:
+  ```bash
+  aws s3 cp test.txt s3://my-bucket/nova-act/test.txt
+  ```
+</Accordion>
+
+<Accordion title="Uploads are slow">
+  Consider:
+  - Bucket region (use same region as your code)
+  - File sizes (disable video for faster uploads)
+  - Network bandwidth
+  - S3 Transfer Acceleration
+  - Uploading asynchronously
+</Accordion>
+
+<Accordion title="Files missing from S3">
+  Ensure:
+  - NovaAct session completed (didn't crash)
+  - Stop hooks were executed (check logs)
+  - Files were generated locally first
+  - Correct prefix and bucket name
+  - No S3 bucket lifecycle rules deleting files too quickly
+</Accordion>
+
+## Best practices
+
+### Naming conventions
+
+<Tip>
+  Use consistent prefixes to organize sessions by project, environment, and date.
+</Tip>
+
+```python
+from datetime import datetime
+
+project = "flight-booking"
+environment = "production"
+date_path = datetime.now().strftime("%Y/%m/%d")
+
+s3_prefix = f"{project}/{environment}/{date_path}/"
+
+s3_writer = S3Writer(
+    boto_session=boto_session,
+    s3_bucket_name="nova-act-logs",
+    s3_prefix=s3_prefix
+)
+```
+
+### Encryption
+
+Enable server-side encryption:
+
+```python
+s3 = boto3.client('s3')
+
+# Enable default encryption on bucket
+s3.put_bucket_encryption(
+    Bucket='my-bucket',
+    ServerSideEncryptionConfiguration={
+        'Rules': [
+            {
+                'ApplyServerSideEncryptionByDefault': {
+                    'SSEAlgorithm': 'AES256'
+                }
+            }
+        ]
+    }
+)
+```
+
+### Cost optimization
+
+- Only record videos when debugging
+- Use lifecycle rules to transition old files
+- Set up expiration policies
+- Use S3 Intelligent-Tiering for automatic optimization
+
+```python
+# Only record video for specific workflows
+record_video = os.getenv("RECORD_VIDEO", "false").lower() == "true"
+
+with NovaAct(
+    starting_page="https://example.com",
+    stop_hooks=[s3_writer],
+    record_video=record_video
+) as nova:
+    nova.act("Complete the task")
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Logging & traces" icon="file-lines" href="/guides/logging-traces">
+    Learn about trace files and logging
+  </Card>
+  <Card title="Deployment" icon="cloud-arrow-up" href="/guides/deployment">
+    Deploy workflows to AWS
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle errors in production
+  </Card>
+  <Card title="Workflows" icon="sitemap" href="/concepts/workflows">
+    Learn about workflow orchestration
+  </Card>
+</CardGroup>

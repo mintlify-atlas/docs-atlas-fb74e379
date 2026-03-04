@@ -1,0 +1,280 @@
+---
+title: Installation
+description: Install Amazon Nova Act SDK and configure your development environment
+---
+
+Amazon Nova Act requires Python 3.10 or above and is available on PyPI. This guide will walk you through installing the SDK and setting up your development environment.
+
+## System requirements
+
+<CardGroup cols={2}>
+  <Card title="Operating system" icon="desktop">
+    - macOS Sierra or later
+    - Ubuntu 22.04 or later
+    - Windows 10+ or WSL2
+  </Card>
+  <Card title="Python version" icon="python">
+    Python 3.10 or above
+  </Card>
+</CardGroup>
+
+<Note>
+  Amazon Nova Act currently supports English language prompts.
+</Note>
+
+## Install Nova Act
+
+Install the SDK using pip:
+
+```bash
+pip install nova-act
+```
+
+### Verify installation
+
+Verify that Nova Act is installed correctly:
+
+```bash
+pip show nova-act
+```
+
+You should see output similar to:
+
+```
+Name: nova-act
+Version: 3.x.x
+Summary: A Python SDK for Amazon Nova Act.
+Location: /path/to/site-packages
+```
+
+<Warning>
+  Nova Act SDK versions older than 3.0 are no longer supported. If you have an older version installed, upgrade using:
+  ```bash
+  pip install --upgrade nova-act
+  ```
+</Warning>
+
+## Install from source
+
+Alternatively, you can build Nova Act from source:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/aws/nova-act.git
+    cd nova-act
+    ```
+  </Step>
+  
+  <Step title="Install with pip">
+    ```bash
+    pip install .
+    ```
+  </Step>
+</Steps>
+
+## Install Google Chrome (optional)
+
+<Info>
+  Nova Act works with both Google Chrome and Chromium. If you already have Chrome installed, you can skip this step.
+</Info>
+
+Nova Act works best with Google Chrome but does not have permission to install it automatically. You can install Chrome manually:
+
+```bash
+playwright install chrome
+```
+
+For more information, visit the [Playwright documentation](https://playwright.dev/python/docs/browsers#google-chrome--microsoft-edge).
+
+### Playwright installation
+
+<Note>
+  The first time you run Nova Act, it may take 1-2 minutes to start while it installs Playwright modules. Subsequent runs will only take a few seconds.
+</Note>
+
+You can disable automatic Playwright installation by setting an environment variable:
+
+```bash
+export NOVA_ACT_SKIP_PLAYWRIGHT_INSTALL=1
+```
+
+## Install CLI tools (optional)
+
+If you plan to deploy workflows to AWS AgentCore Runtime, install the CLI tools:
+
+```bash
+pip install nova-act[cli]
+```
+
+This includes additional dependencies for:
+- Workflow deployment
+- Container building
+- ECR management
+- IAM role creation
+
+See the [CLI documentation](/cli/overview) for more details.
+
+## Development dependencies
+
+For SDK development, install the dev dependencies:
+
+```bash
+pip install nova-act[dev]
+```
+
+This includes:
+- Testing frameworks
+- Linting tools
+- Type checking utilities
+
+## Virtual environment (recommended)
+
+<Tip>
+  It's recommended to install Nova Act in a virtual environment to avoid dependency conflicts.
+</Tip>
+
+<Tabs>
+  <Tab title="venv">
+    ```bash
+    # Create virtual environment
+    python -m venv nova-env
+    
+    # Activate (macOS/Linux)
+    source nova-env/bin/activate
+    
+    # Activate (Windows)
+    nova-env\Scripts\activate
+    
+    # Install Nova Act
+    pip install nova-act
+    ```
+  </Tab>
+  
+  <Tab title="conda">
+    ```bash
+    # Create conda environment
+    conda create -n nova-env python=3.10
+    
+    # Activate environment
+    conda activate nova-env
+    
+    # Install Nova Act
+    pip install nova-act
+    ```
+  </Tab>
+  
+  <Tab title="poetry">
+    ```bash
+    # Initialize project
+    poetry init
+    
+    # Add Nova Act
+    poetry add nova-act
+    
+    # Activate environment
+    poetry shell
+    ```
+  </Tab>
+</Tabs>
+
+## Docker installation
+
+You can also run Nova Act in a Docker container:
+
+```dockerfile
+FROM python:3.10-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Nova Act
+RUN pip install nova-act
+
+# Install Chrome (optional)
+RUN python -m playwright install chrome
+RUN python -m playwright install-deps chrome
+
+WORKDIR /app
+COPY . .
+
+CMD ["python", "your_workflow.py"]
+```
+
+## Upgrade Nova Act
+
+To upgrade to the latest version:
+
+```bash
+pip install --upgrade nova-act
+```
+
+Check your current version:
+
+```bash
+pip show nova-act
+```
+
+## Troubleshooting
+
+<Accordion title="Import error: No module named 'nova_act'">
+  This usually means Nova Act isn't installed in your current Python environment. Verify that:
+  - You're using the correct Python interpreter (check with `which python` or `python --version`)
+  - Nova Act is installed in your active environment (run `pip list | grep nova-act`)
+  - If using a virtual environment, make sure it's activated
+</Accordion>
+
+<Accordion title="Playwright installation fails">
+  If automatic Playwright installation fails:
+  1. Install Playwright manually: `python -m playwright install`
+  2. Install system dependencies: `python -m playwright install-deps`
+  3. Set `NOVA_ACT_SKIP_PLAYWRIGHT_INSTALL=1` to disable automatic installation
+</Accordion>
+
+<Accordion title="Permission denied errors on Linux">
+  On some Linux systems, you may need to install additional dependencies:
+  ```bash
+  sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1
+  ```
+</Accordion>
+
+<Accordion title="Chrome not found">
+  If Nova Act can't find Chrome:
+  1. Install Chrome manually: `playwright install chrome`
+  2. Or use Chromium (installed automatically with Playwright)
+  3. Verify Chrome is installed: `playwright list`
+</Accordion>
+
+## IDE extensions
+
+<Info>
+  Accelerate your development with the [Nova Act IDE extension](https://github.com/aws/nova-act-extension) for VS Code.
+</Info>
+
+The Nova Act extension provides:
+- Automated environment setup
+- Chat-to-script generation
+- Browser session debugging
+- Step-by-step testing
+
+Visit the [extension repository](https://github.com/aws/nova-act-extension) or [website](https://nova.amazon.com/act) for installation instructions.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/authentication">
+    Set up API key or IAM authentication
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first workflow
+  </Card>
+  <Card title="Core concepts" icon="book" href="/concepts/workflows">
+    Learn about workflows and automation
+  </Card>
+  <Card title="Examples" icon="code" href="https://github.com/amazon-agi-labs/nova-act-samples">
+    Explore code samples
+  </Card>
+</CardGroup>

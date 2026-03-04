@@ -1,0 +1,426 @@
+---
+title: Headless mode
+description: Run browsers in headless mode and view sessions remotely
+---
+
+Headless mode allows Nova Act to run browsers without a visible UI. This is useful for production environments, CI/CD pipelines, and scenarios where you don't need to see the browser window.
+
+## Enable headless mode
+
+Set `headless=True` when creating a NovaAct instance:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True
+) as nova:
+    nova.act("Search for products")
+```
+
+The browser will run without a visible window, making it ideal for:
+- Automated testing in CI/CD
+- Server environments without displays
+- Background batch processing
+- Resource-constrained systems
+
+## Benefits of headless mode
+
+<CardGroup cols={2}>
+  <Card title="Resource efficient" icon="microchip">
+    Lower CPU and memory usage without rendering UI
+  </Card>
+  <Card title="Faster execution" icon="bolt">
+    No rendering overhead means faster workflows
+  </Card>
+  <Card title="Server friendly" icon="server">
+    Run on headless servers without X11 or displays
+  </Card>
+  <Card title="Parallel scaling" icon="arrows-split-up-and-left">
+    Run more sessions in parallel
+  </Card>
+</CardGroup>
+
+## Remote debugging
+
+When running in headless mode, you can still view and interact with the browser using remote debugging.
+
+### Enable remote debugging
+
+Set the browser args environment variable before starting your workflow:
+
+```bash
+export NOVA_ACT_BROWSER_ARGS="--remote-debugging-port=9222"
+```
+
+Then run your headless workflow:
+
+```python
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True
+) as nova:
+    nova.act("Complete the task")
+```
+
+### Connect to the debugging session
+
+<Steps>
+  <Step title="Open the debug endpoint">
+    Open a local browser and navigate to:
+    ```
+    http://localhost:9222/json
+    ```
+    
+    You'll see a JSON list of all browser pages.
+  </Step>
+  
+  <Step title="Find your page">
+    Look for the item with `"type": "page"` that matches your workflow.
+  </Step>
+  
+  <Step title="Connect DevTools">
+    Copy the `devtoolsFrontendUrl` value and paste it into your browser.
+    
+    You'll now see the Chrome DevTools connected to your headless browser.
+  </Step>
+</Steps>
+
+### Example debug URL
+
+```json
+[
+  {
+    "description": "",
+    "devtoolsFrontendUrl": "/devtools/inspector.html?ws=localhost:9222/devtools/page/...",
+    "id": "12345678-1234-1234-1234-123456789012",
+    "title": "Example Domain",
+    "type": "page",
+    "url": "https://example.com",
+    "webSocketDebuggerUrl": "ws://localhost:9222/devtools/page/..."
+  }
+]
+```
+
+## Interactive debugging workflow
+
+You can interact with the headless browser during execution:
+
+```python
+import time
+from nova_act import NovaAct
+
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True
+) as nova:
+    # Navigate to a page
+    nova.act("Go to the login page")
+    
+    # Pause for manual intervention
+    print("Connect to http://localhost:9222/json to view/interact")
+    time.sleep(60)  # Wait for manual actions
+    
+    # Continue automation
+    nova.act("Complete the checkout process")
+```
+
+This is useful for:
+- Solving CAPTCHAs manually
+- Debugging specific steps
+- Handling edge cases
+
+## CAPTCHA handling
+
+Use remote debugging to solve CAPTCHAs in headless workflows:
+
+```python
+import time
+from nova_act import NovaAct, BOOL_SCHEMA
+
+def solve_captcha_if_present(nova: NovaAct, timeout: int = 300) -> None:
+    """Check for CAPTCHA and wait for human to solve it."""
+    result = nova.act_get(
+        "Is there a CAPTCHA on this page?",
+        schema=BOOL_SCHEMA
+    )
+    
+    if result.parsed_response:
+        print("CAPTCHA detected!")
+        print("Solve it at: http://localhost:9222/json")
+        
+        # Wait for CAPTCHA to be solved
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            time.sleep(5)
+            
+            # Check if CAPTCHA is still there
+            check = nova.act_get(
+                "Is there still a CAPTCHA on this page?",
+                schema=BOOL_SCHEMA
+            )
+            
+            if not check.parsed_response:
+                print("CAPTCHA solved!")
+                return
+        
+        raise TimeoutError("CAPTCHA was not solved in time")
+
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True
+) as nova:
+    nova.act("Navigate to the protected page")
+    solve_captcha_if_present(nova)
+    nova.act("Continue with the workflow")
+```
+
+## Alert notifications
+
+Send alerts when human intervention is needed:
+
+```python
+import boto3
+import time
+from nova_act import NovaAct, BOOL_SCHEMA
+
+def send_alert(message: str, debug_url: str) -> None:
+    """Send SNS notification for manual intervention."""
+    sns = boto3.client('sns')
+    sns.publish(
+        TopicArn='arn:aws:sns:us-east-1:123456789:workflow-alerts',
+        Subject='Manual intervention required',
+        Message=f"{message}\n\nDebug at: {debug_url}"
+    )
+
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True
+) as nova:
+    nova.act("Navigate to login")
+    
+    # Check for CAPTCHA
+    result = nova.act_get(
+        "Is there a CAPTCHA?",
+        schema=BOOL_SCHEMA
+    )
+    
+    if result.parsed_response:
+        debug_url = "http://localhost:9222/json"
+        send_alert("CAPTCHA needs solving", debug_url)
+        
+        # Wait for resolution
+        time.sleep(300)
+    
+    nova.act("Complete the task")
+```
+
+## Remote host access
+
+<Note>
+  If running Nova Act on a remote server, you'll need to set up port forwarding to access the debug interface.
+</Note>
+
+### SSH port forwarding
+
+```bash
+ssh -L 9222:localhost:9222 user@remote-server
+```
+
+Now you can access `http://localhost:9222/json` from your local machine, and it will connect to the remote server's debugging port.
+
+### Alternative: Use ngrok
+
+For temporary public access:
+
+```bash
+# On the remote server
+ngrok http 9222
+```
+
+ngrok will provide a public URL you can use to access the debug interface.
+
+<Warning>
+  Be cautious when exposing debugging ports publicly. Use authentication and firewall rules appropriately.
+</Warning>
+
+## Production considerations
+
+### Performance optimization
+
+```python
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True,
+    # Disable unnecessary features
+    record_video=False,
+    # Use custom logs directory
+    logs_directory="/var/log/nova-act"
+) as nova:
+    nova.act("Complete the task")
+```
+
+### Resource limits
+
+Set resource limits in containerized environments:
+
+```dockerfile
+FROM python:3.10-slim
+
+# Install dependencies
+RUN pip install nova-act
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
+# Set resource limits
+ENV NOVA_ACT_BROWSER_ARGS="--disable-dev-shm-usage --no-sandbox"
+
+WORKDIR /app
+COPY workflow.py .
+
+CMD ["python", "workflow.py"]
+```
+
+Docker Compose:
+```yaml
+services:
+  nova-act-worker:
+    image: my-nova-act-workflow
+    environment:
+      - NOVA_ACT_BROWSER_ARGS=--disable-dev-shm-usage --no-sandbox
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+```
+
+## Debugging options
+
+Customize the remote debugging port:
+
+```bash
+# Use a custom port
+export NOVA_ACT_BROWSER_ARGS="--remote-debugging-port=9223"
+```
+
+Enable additional logging:
+
+```bash
+# Enable verbose logging
+export NOVA_ACT_LOG_LEVEL=10  # DEBUG level
+export NOVA_ACT_BROWSER_ARGS="--enable-logging --v=1 --remote-debugging-port=9222"
+```
+
+## Troubleshooting
+
+<Accordion title="Cannot connect to debugging port">
+  Check that:
+  - The browser is running with remote debugging enabled
+  - Port 9222 is not blocked by firewall
+  - No other process is using port 9222
+  - If on remote server, port forwarding is configured
+  
+  Test with: `curl http://localhost:9222/json`
+</Accordion>
+
+<Accordion title="Headless mode crashes or fails">
+  Try these fixes:
+  - Add `--disable-dev-shm-usage` to browser args
+  - Increase shared memory in Docker: `--shm-size=2gb`
+  - Add `--no-sandbox` in containerized environments
+  - Install required system dependencies
+  
+  ```bash
+  export NOVA_ACT_BROWSER_ARGS="--disable-dev-shm-usage --no-sandbox"
+  ```
+</Accordion>
+
+<Accordion title="Slow performance in headless mode">
+  Headless mode should be faster, but check:
+  - System resources (CPU, memory)
+  - Network latency
+  - Video recording is disabled
+  - Logs directory has enough space
+  - No unnecessary browser extensions
+</Accordion>
+
+<Accordion title="DevTools not loading">
+  Ensure:
+  - Browser version matches DevTools version
+  - WebSocket connection is working
+  - No proxy interfering with localhost
+  - Browser hasn't crashed or restarted
+</Accordion>
+
+## Best practices
+
+### Development vs production
+
+<Tabs>
+  <Tab title="Development">
+    Use headed mode for development:
+    ```python
+    with NovaAct(
+        starting_page="https://example.com",
+        headless=False  # See what's happening
+    ) as nova:
+        nova.act("Test the workflow")
+    ```
+  </Tab>
+  
+  <Tab title="Production">
+    Use headless mode for production:
+    ```python
+    import os
+    
+    with NovaAct(
+        starting_page="https://example.com",
+        headless=os.getenv("ENV") == "production"
+    ) as nova:
+        nova.act("Run the workflow")
+    ```
+  </Tab>
+</Tabs>
+
+### Monitoring
+
+Log headless session activity:
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+with NovaAct(
+    starting_page="https://example.com",
+    headless=True,
+    logs_directory="/var/log/nova-act"
+) as nova:
+    logger.info("Starting headless workflow")
+    
+    try:
+        result = nova.act("Complete the task")
+        logger.info(f"Workflow completed: {result.metadata}")
+    except Exception as e:
+        logger.error(f"Workflow failed: {e}")
+        raise
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Logging & traces" icon="file-lines" href="/guides/logging-traces">
+    View traces and debug workflows
+  </Card>
+  <Card title="Proxy configuration" icon="network-wired" href="/advanced/proxy-configuration">
+    Configure proxy servers
+  </Card>
+  <Card title="S3 storage" icon="database" href="/advanced/s3-storage">
+    Store session data in S3
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle errors in production
+  </Card>
+</CardGroup>

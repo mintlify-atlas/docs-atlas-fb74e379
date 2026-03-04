@@ -1,0 +1,355 @@
+---
+title: "Guardrails"
+description: "State guardrail system for controlling agent behavior"
+---
+
+## Overview
+
+Guardrails provide a mechanism to control agent behavior by inspecting the browser state before each action. You can implement custom guardrails to block actions based on URLs, page content, or other state information.
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+
+def my_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    if "blocked-site.com" in state.browser_url:
+        return GuardrailDecision.BLOCK
+    return GuardrailDecision.PASS
+
+with NovaAct(starting_page="https://example.com", 
+             state_guardrail=my_guardrail) as nova:
+    nova.act("Navigate and click")
+```
+
+## GuardrailDecision
+
+Enum representing the decision returned by a state guardrail callback.
+
+### Values
+
+<ResponseField name="PASS" type="GuardrailDecision">
+  Allow the agent to continue execution.
+</ResponseField>
+
+<ResponseField name="BLOCK" type="GuardrailDecision">
+  Block the agent from continuing and raise `ActStateGuardrailError`.
+</ResponseField>
+
+### Example
+
+```python
+from nova_act import GuardrailDecision
+
+def safe_guardrail(state):
+    # Allow execution
+    return GuardrailDecision.PASS
+
+def blocking_guardrail(state):
+    # Block execution
+    return GuardrailDecision.BLOCK
+```
+
+## GuardrailInputState
+
+A named tuple representing the state of the agent that is passed to guardrail callbacks.
+
+### Fields
+
+<ResponseField name="browser_url" type="str" required>
+  The current URL of the browser page.
+</ResponseField>
+
+### Example
+
+```python
+from nova_act import GuardrailInputState, GuardrailDecision
+
+def url_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    print(f"Current URL: {state.browser_url}")
+    
+    # Check URL patterns
+    if state.browser_url.startswith("https://trusted-site.com"):
+        return GuardrailDecision.PASS
+    
+    return GuardrailDecision.BLOCK
+```
+
+## GuardrailCallable
+
+Type alias for guardrail callback functions.
+
+```python
+from typing import Callable
+from nova_act import GuardrailInputState, GuardrailDecision
+
+GuardrailCallable = Callable[[GuardrailInputState], GuardrailDecision]
+```
+
+## Creating Guardrails
+
+### Basic URL Guardrail
+
+Block navigation to specific domains:
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+
+def block_social_media(state: GuardrailInputState) -> GuardrailDecision:
+    blocked_domains = ["facebook.com", "twitter.com", "instagram.com"]
+    
+    for domain in blocked_domains:
+        if domain in state.browser_url:
+            print(f"Blocked access to {domain}")
+            return GuardrailDecision.BLOCK
+    
+    return GuardrailDecision.PASS
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=block_social_media
+) as nova:
+    # Agent will be blocked if it tries to navigate to social media
+    nova.act("Research the topic")
+```
+
+### Whitelist Guardrail
+
+Only allow navigation to approved domains:
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+
+def whitelist_domains(state: GuardrailInputState) -> GuardrailDecision:
+    allowed_domains = [
+        "example.com",
+        "trusted-site.com",
+        "api.service.com"
+    ]
+    
+    # Check if current URL is in whitelist
+    for domain in allowed_domains:
+        if domain in state.browser_url:
+            return GuardrailDecision.PASS
+    
+    print(f"Blocked access to non-whitelisted domain: {state.browser_url}")
+    return GuardrailDecision.BLOCK
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=whitelist_domains
+) as nova:
+    nova.act("Complete the workflow")
+```
+
+### Protocol Guardrail
+
+Restrict to HTTPS only:
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+
+def https_only(state: GuardrailInputState) -> GuardrailDecision:
+    if state.browser_url.startswith("https://"):
+        return GuardrailDecision.PASS
+    
+    print(f"Blocked non-HTTPS URL: {state.browser_url}")
+    return GuardrailDecision.BLOCK
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=https_only
+) as nova:
+    nova.act("Navigate securely")
+```
+
+### Composite Guardrail
+
+Combine multiple guardrail checks:
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+
+class CompositeGuardrail:
+    def __init__(self):
+        self.blocked_domains = ["malicious.com", "spam.com"]
+        self.allowed_protocols = ["https://", "file://"]
+    
+    def __call__(self, state: GuardrailInputState) -> GuardrailDecision:
+        # Check protocol
+        if not any(state.browser_url.startswith(p) for p in self.allowed_protocols):
+            print(f"Blocked due to protocol: {state.browser_url}")
+            return GuardrailDecision.BLOCK
+        
+        # Check blocked domains
+        for domain in self.blocked_domains:
+            if domain in state.browser_url:
+                print(f"Blocked domain: {domain}")
+                return GuardrailDecision.BLOCK
+        
+        return GuardrailDecision.PASS
+
+guardrail = CompositeGuardrail()
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=guardrail
+) as nova:
+    nova.act("Complete the task")
+```
+
+### Logging Guardrail
+
+Log all URL visits without blocking:
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+import logging
+
+logger = logging.getLogger(__name__)
+
+def log_all_urls(state: GuardrailInputState) -> GuardrailDecision:
+    logger.info(f"Agent visiting: {state.browser_url}")
+    return GuardrailDecision.PASS
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=log_all_urls
+) as nova:
+    nova.act("Browse and search")
+    # All URLs will be logged
+```
+
+## Error Handling
+
+When a guardrail blocks an action, an `ActStateGuardrailError` is raised:
+
+```python
+from nova_act import (
+    NovaAct, 
+    GuardrailDecision, 
+    GuardrailInputState,
+    ActStateGuardrailError
+)
+
+def strict_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    if "restricted" in state.browser_url:
+        return GuardrailDecision.BLOCK
+    return GuardrailDecision.PASS
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=strict_guardrail
+) as nova:
+    try:
+        # If agent navigates to restricted URL, it will be blocked
+        nova.act("Navigate to restricted area")
+    except ActStateGuardrailError as e:
+        print(f"Guardrail blocked: {e.message}")
+        print(f"Session: {e.metadata.session_id}")
+```
+
+## When Guardrails Are Called
+
+Guardrails are called at strategic points during agent execution:
+
+1. **After observation**: After the agent observes the current page state
+2. **Before backend invocation**: Before sending the observation to the model
+3. **On every step**: For each actuation step the agent takes
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+
+def debug_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    print(f"Guardrail check at URL: {state.browser_url}")
+    return GuardrailDecision.PASS
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=debug_guardrail
+) as nova:
+    # Guardrail will be called multiple times during execution
+    nova.act("Click through several pages")
+```
+
+## Best Practices
+
+<Tip>
+  **Keep guardrails fast**: Guardrails are called frequently during agent execution. Keep checks lightweight and avoid expensive operations.
+</Tip>
+
+<Tip>
+  **Log blocked actions**: Always log when blocking an action to help debug and understand agent behavior.
+</Tip>
+
+<Tip>
+  **Use for safety, not logic**: Guardrails are for safety constraints, not business logic. Don't use them to control normal workflow flow.
+</Tip>
+
+<Warning>
+  Guardrails only see the browser URL, not the full page content. For content-based filtering, you may need to use other mechanisms.
+</Warning>
+
+## Advanced Example
+
+Comprehensive guardrail with rate limiting and pattern matching:
+
+```python
+from nova_act import (
+    NovaAct, 
+    GuardrailDecision, 
+    GuardrailInputState,
+    ActStateGuardrailError
+)
+import re
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+class AdvancedGuardrail:
+    def __init__(self):
+        self.blocked_patterns = [
+            r".*\.(exe|dll|bat|cmd)$",  # Executable files
+            r".*malicious.*",            # Suspicious domains
+            r".*admin\/delete.*"         # Dangerous admin actions
+        ]
+        self.visit_counts = defaultdict(int)
+        self.max_visits_per_domain = 10
+    
+    def __call__(self, state: GuardrailInputState) -> GuardrailDecision:
+        url = state.browser_url
+        
+        # Pattern matching
+        for pattern in self.blocked_patterns:
+            if re.match(pattern, url, re.IGNORECASE):
+                print(f"Blocked by pattern {pattern}: {url}")
+                return GuardrailDecision.BLOCK
+        
+        # Rate limiting per domain
+        domain = self._extract_domain(url)
+        self.visit_counts[domain] += 1
+        
+        if self.visit_counts[domain] > self.max_visits_per_domain:
+            print(f"Rate limit exceeded for domain: {domain}")
+            return GuardrailDecision.BLOCK
+        
+        return GuardrailDecision.PASS
+    
+    def _extract_domain(self, url: str) -> str:
+        match = re.search(r"https?://([^/]+)", url)
+        return match.group(1) if match else url
+
+guardrail = AdvancedGuardrail()
+
+try:
+    with NovaAct(
+        starting_page="https://example.com",
+        state_guardrail=guardrail
+    ) as nova:
+        nova.act("Browse and complete tasks")
+except ActStateGuardrailError as e:
+    print(f"Workflow blocked by guardrail: {e}")
+```
+
+## See Also
+
+- [SecurityOptions](/api/security-options) - For file system access control
+- [Errors](/api/errors) - For error types including `ActStateGuardrailError`
+- [NovaAct](/api/novaact) - For using guardrails with the main client

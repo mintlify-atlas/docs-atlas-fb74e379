@@ -1,0 +1,714 @@
+---
+title: Configuration
+description: Configure the Nova Act CLI with profiles, regions, state management, and environment variables
+---
+
+## Configuration Overview
+
+The Nova Act CLI uses a multi-layered configuration system:
+
+1. **State Files**: Per-region workflow tracking
+2. **User Config**: Global CLI preferences
+3. **AWS Profiles**: Credential management
+4. **Environment Variables**: Runtime configuration
+
+## State Management
+
+### State File Structure
+
+Workflows are stored in separate state files per AWS account and region:
+
+```
+~/.act_cli/
+├── state/
+│   ├── 123456789012/              # AWS Account ID
+│   │   ├── us-east-1/
+│   │   │   └── workflows.json     # Region-specific state
+│   │   └── us-west-2/
+│   │       └── workflows.json
+│   └── 987654321098/
+│       └── us-east-1/
+│           └── workflows.json
+├── builds/                        # Build artifacts
+│   └── {workflow-name}/
+└── config.yml                     # User preferences
+```
+
+### State File Format
+
+<Accordion title="View workflows.json Schema">
+```json
+{
+  "workflows": {
+    "my-workflow": {
+      "name": "my-workflow",
+      "directory_path": "/path/to/build/dir/",
+      "created_at": "2024-10-30T12:51:39.000Z",
+      "workflow_definition_arn": "arn:aws:nova-act:us-east-1:123456789012:workflow-definition/my-workflow",
+      "deployments": {
+        "agentcore": {
+          "deployment_arn": "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/my_workflow_abc123",
+          "image_uri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/nova-act-cli-default:my-workflow-20241030-125139",
+          "image_tag": "my-workflow-20241030-125139"
+        }
+      },
+      "metadata": null,
+      "last_image_tag": "my-workflow-20241030-125139"
+    }
+  },
+  "last_updated": "2024-10-30T12:51:39.000Z",
+  "version": "1.0"
+}
+```
+</Accordion>
+
+### State Schema Fields
+
+#### WorkflowInfo Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Workflow identifier |
+| `directory_path` | string | Path to source/build directory (updated on each deployment) |
+| `created_at` | timestamp | Workflow creation timestamp |
+| `workflow_definition_arn` | string | ARN of associated WorkflowDefinition (optional) |
+| `deployments.agentcore` | object | AgentCore deployment information |
+| `metadata` | object | Custom metadata dictionary (optional) |
+| `last_image_tag` | string | Most recent image tag used |
+
+#### AgentCore Deployment Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `deployment_arn` | string | ARN of AgentCore runtime |
+| `image_uri` | string | Full ECR image URI |
+| `image_tag` | string | Image tag used for deployment |
+
+### File Locking
+
+The CLI uses file locking to protect concurrent operations:
+
+```python
+# Lock files are automatically created
+~/.act_cli/state/123456789012-us-east-1.lock
+```
+
+<Note>
+**Lock Timeout:** 30 seconds
+
+If a CLI operation is already in progress, subsequent commands wait up to 30 seconds for the lock to be released.
+</Note>
+
+### State Isolation
+
+State is isolated by:
+- **AWS Account ID**: Each account has its own directory
+- **Region**: Each region has its own state file
+
+```bash
+# Operations in us-east-1
+act workflow create --name workflow-a --region us-east-1
+
+# Operations in us-west-2 (completely isolated)
+act workflow create --name workflow-a --region us-west-2
+
+# Same workflow name, different regions, no conflicts
+```
+
+## User Configuration
+
+### Config File Location
+
+User preferences are stored in:
+
+```
+~/.act_cli/config.yml
+```
+
+### Config File Format
+
+<Accordion title="View config.yml Schema">
+```yaml
+theme:
+  name: default  # Options: default, minimal, none
+  enabled: true
+
+default_region: us-east-1
+
+# Future configuration options will be added here
+```
+</Accordion>
+
+### Theme Configuration
+
+Customize CLI output styling:
+
+<Tabs>
+  <Tab title="Default Theme">
+    Full color output with emojis and styling:
+    
+    ```yaml config.yml
+    theme:
+      name: default
+      enabled: true
+    ```
+    
+    Best for:
+    - Interactive terminal usage
+    - Development environments
+    - Colorful, rich output
+  </Tab>
+
+  <Tab title="Minimal Theme">
+    Reduced colors for readability:
+    
+    ```yaml config.yml
+    theme:
+      name: minimal
+      enabled: true
+    ```
+    
+    Best for:
+    - Terminals with limited color support
+    - Accessibility needs
+    - Simplified output
+  </Tab>
+
+  <Tab title="No Theme">
+    Plain text output without styling:
+    
+    ```yaml config.yml
+    theme:
+      name: none
+      enabled: true
+    ```
+    
+    Best for:
+    - CI/CD pipelines
+    - Log parsing and automation
+    - Scripting
+  </Tab>
+</Tabs>
+
+### Theme via Environment Variable
+
+Override theme configuration:
+
+```bash
+# Set for current session
+export ACT_CLI_THEME=none
+act workflow deploy --source-dir /path/to/code
+
+# Set for single command
+ACT_CLI_THEME=minimal act workflow list
+```
+
+### Default Region
+
+Set a default region for all commands:
+
+```yaml config.yml
+default_region: us-east-1
+```
+
+Override with `--region` flag:
+
+```bash
+act workflow deploy --name my-workflow --region us-west-2
+```
+
+## AWS Profiles
+
+The CLI supports AWS credential profiles from `~/.aws/credentials`.
+
+### Configure Profiles
+
+Create multiple profiles:
+
+```ini ~/.aws/credentials
+[default]
+aws_access_key_id = DEFAULT_ACCESS_KEY
+aws_secret_access_key = DEFAULT_SECRET_KEY
+
+[development]
+aws_access_key_id = DEV_ACCESS_KEY
+aws_secret_access_key = DEV_SECRET_KEY
+
+[production]
+aws_access_key_id = PROD_ACCESS_KEY
+aws_secret_access_key = PROD_SECRET_KEY
+role_arn = arn:aws:iam::123456789012:role/ProductionRole
+```
+
+### Use Profiles
+
+<Warning>
+**Important:** The `--profile` option must come **before** the subcommand.
+</Warning>
+
+```bash
+# ✅ Correct: Profile before subcommand
+act workflow --profile development deploy --name my-workflow --source-dir ./code
+
+# ❌ Incorrect: Profile after subcommand
+act workflow deploy --profile development --name my-workflow --source-dir ./code
+```
+
+### Profile Examples
+
+<Tabs>
+  <Tab title="Deploy with Profile">
+    ```bash
+    act workflow --profile production deploy \
+      --name customer-workflow \
+      --source-dir ./code
+    ```
+  </Tab>
+
+  <Tab title="Run with Profile">
+    ```bash
+    act workflow --profile development run \
+      --name test-workflow \
+      --payload '{}'
+    ```
+  </Tab>
+
+  <Tab title="List with Profile">
+    ```bash
+    act workflow --profile production list
+    ```
+  </Tab>
+
+  <Tab title="Multiple Operations">
+    ```bash
+    # Create in development
+    act workflow --profile development create --name dev-workflow
+    
+    # Deploy to production
+    act workflow --profile production deploy \
+      --name prod-workflow \
+      --source-dir ./code
+    
+    # Run in both environments
+    act workflow --profile development run --name dev-workflow --payload '{}'
+    act workflow --profile production run --name prod-workflow --payload '{}'
+    ```
+  </Tab>
+</Tabs>
+
+## Environment Variables
+
+### CLI Environment Variables
+
+Configure CLI behavior:
+
+| Variable | Description | Values |
+|----------|-------------|--------|
+| `ACT_CLI_THEME` | Output styling theme | `default`, `minimal`, `none` |
+| `AWS_PROFILE` | Default AWS profile | Profile name from `~/.aws/credentials` |
+| `AWS_DEFAULT_REGION` | Default AWS region | AWS region code (e.g., `us-east-1`) |
+| `AWS_ACCESS_KEY_ID` | AWS access key | AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | AWS secret key |
+
+### Set CLI Environment Variables
+
+```bash
+# Output theme
+export ACT_CLI_THEME=minimal
+
+# AWS configuration
+export AWS_PROFILE=production
+export AWS_DEFAULT_REGION=us-east-1
+
+# Or set credentials directly
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+```
+
+### Workflow Environment Variables
+
+Pass environment variables to your workflow at runtime using `AC_HANDLER_ENV`:
+
+```bash
+act workflow run --name my-workflow --payload '{
+  "AC_HANDLER_ENV": {
+    "NOVA_ACT_API_KEY": "your-api-key-here",
+    "DEBUG": "true",
+    "LOG_LEVEL": "info"
+  },
+  "input": "data"
+}'
+```
+
+### How It Works
+
+<Steps>
+  <Step title="Include AC_HANDLER_ENV in Payload">
+    Add environment variables to the payload:
+    
+    ```json
+    {
+      "AC_HANDLER_ENV": {
+        "NOVA_ACT_API_KEY": "your-key",
+        "CUSTOM_VAR": "value"
+      },
+      "input": "your workflow input"
+    }
+    ```
+  </Step>
+
+  <Step title="AgentCore Extracts Variables">
+    The AgentCore handler automatically:
+    1. Extracts `AC_HANDLER_ENV` from payload
+    2. Sets variables in `os.environ`
+    3. Removes `AC_HANDLER_ENV` from payload before passing to your workflow
+  </Step>
+
+  <Step title="Access in Workflow Code">
+    Use `os.environ` in your workflow:
+    
+    ```python main.py
+    import os
+    
+    def main(payload):
+        # Access environment variables
+        api_key = os.environ.get("NOVA_ACT_API_KEY")
+        debug = os.environ.get("DEBUG", "false") == "true"
+        
+        if debug:
+            print(f"API Key: {api_key[:4]}...")
+        
+        # Your workflow logic
+        input_data = payload.get("input")
+        return {"result": f"Processed: {input_data}"}
+    ```
+  </Step>
+</Steps>
+
+### Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="API Keys and Credentials">
+    Pass sensitive credentials without hardcoding:
+    
+    ```bash
+    act workflow run --name my-workflow --payload '{
+      "AC_HANDLER_ENV": {
+        "NOVA_ACT_API_KEY": "prod-key-12345",
+        "DATABASE_URL": "postgresql://...",
+        "STRIPE_API_KEY": "sk_live_..."
+      },
+      "order_id": "12345"
+    }'
+    ```
+  </Accordion>
+
+  <Accordion title="Feature Flags">
+    Enable/disable features dynamically:
+    
+    ```bash
+    act workflow run --name my-workflow --payload '{
+      "AC_HANDLER_ENV": {
+        "ENABLE_CACHING": "true",
+        "ENABLE_RETRY": "false",
+        "MAX_RETRIES": "3"
+      },
+      "input": "data"
+    }'
+    ```
+  </Accordion>
+
+  <Accordion title="Debug Configuration">
+    Control logging and debugging:
+    
+    ```bash
+    act workflow run --name my-workflow --payload '{
+      "AC_HANDLER_ENV": {
+        "DEBUG": "true",
+        "LOG_LEVEL": "debug",
+        "TRACE_ENABLED": "true"
+      },
+      "input": "test"
+    }'
+    ```
+  </Accordion>
+
+  <Accordion title="Environment-Specific Settings">
+    Test with different configurations:
+    
+    ```bash
+    # Development
+    act workflow run --name my-workflow --payload '{
+      "AC_HANDLER_ENV": {
+        "ENVIRONMENT": "development",
+        "API_ENDPOINT": "https://dev.api.example.com"
+      },
+      "input": "test"
+    }'
+    
+    # Production
+    act workflow run --name my-workflow --payload '{
+      "AC_HANDLER_ENV": {
+        "ENVIRONMENT": "production",
+        "API_ENDPOINT": "https://api.example.com"
+      },
+      "input": "real-data"
+    }'
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Benefits of AC_HANDLER_ENV
+
+<CardGroup cols={2}>
+  <Card title="No Redeployment" icon="rocket">
+    Change configuration without rebuilding containers
+  </Card>
+  <Card title="Per-Execution Config" icon="sliders">
+    Pass different credentials for each run
+  </Card>
+  <Card title="Security" icon="lock">
+    Keep secrets out of code and containers
+  </Card>
+  <Card title="Testing" icon="flask">
+    Test with different settings instantly
+  </Card>
+</CardGroup>
+
+## Region Configuration
+
+### Set Default Region
+
+Configure a default region:
+
+```yaml ~/.act_cli/config.yml
+default_region: us-east-1
+```
+
+Or via environment variable:
+
+```bash
+export AWS_DEFAULT_REGION=us-east-1
+```
+
+### Override Region
+
+Specify region per command:
+
+```bash
+# Create in specific region
+act workflow create --name my-workflow --region us-west-2
+
+# Deploy to specific region
+act workflow deploy --name my-workflow --source-dir ./code --region us-west-2
+
+# Run in specific region
+act workflow run --name my-workflow --payload '{}' --region us-west-2
+```
+
+### Region Precedence
+
+Region resolution order:
+1. `--region` command flag (highest priority)
+2. `AWS_DEFAULT_REGION` environment variable
+3. `default_region` in `~/.act_cli/config.yml`
+4. AWS CLI default region from `~/.aws/config`
+
+<Warning>
+**Important:** The AWS Nova Act service is currently only available in **us-east-1**.
+</Warning>
+
+## File Locations Reference
+
+### User Data
+
+| Path | Description |
+|------|-------------|
+| `~/.act_cli/state/{account_id}/{region}/workflows.json` | Region-specific workflow state |
+| `~/.act_cli/config.yml` | User configuration |
+| `~/.act_cli/builds/{workflow-name}/` | Build artifacts (persistent) |
+
+### Lock Files
+
+| Path | Description |
+|------|-------------|
+| `~/.act_cli/state/{account_id}-{region}.lock` | Temporary lock for concurrent access |
+
+### AWS Configuration
+
+| Path | Description |
+|------|-------------|
+| `~/.aws/credentials` | AWS access keys and profiles |
+| `~/.aws/config` | AWS CLI configuration |
+
+## Configuration Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Profiles for Multiple Accounts">
+    Separate development and production:
+    
+    ```ini ~/.aws/credentials
+    [dev]
+    aws_access_key_id = DEV_KEY
+    aws_secret_access_key = DEV_SECRET
+    
+    [prod]
+    aws_access_key_id = PROD_KEY
+    aws_secret_access_key = PROD_SECRET
+    ```
+    
+    ```bash
+    # Development workflow
+    act workflow --profile dev create --name test-feature
+    act workflow --profile dev deploy --name test-feature --source-dir ./code
+    
+    # Production workflow
+    act workflow --profile prod deploy --name stable-feature --source-dir ./code
+    ```
+  </Accordion>
+
+  <Accordion title="Set Default Region">
+    Configure your primary region to avoid repetitive `--region` flags:
+    
+    ```yaml ~/.act_cli/config.yml
+    default_region: us-east-1
+    ```
+  </Accordion>
+
+  <Accordion title="Use Environment Variables for CI/CD">
+    In CI/CD pipelines, use environment variables:
+    
+    ```yaml .github/workflows/deploy.yml
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+      ACT_CLI_THEME: none
+    
+    steps:
+      - run: act workflow deploy --name production-workflow --source-dir ./code
+    ```
+  </Accordion>
+
+  <Accordion title="Pass Secrets via AC_HANDLER_ENV">
+    Never hardcode secrets in code:
+    
+    ```bash
+    # ❌ Bad: Secrets in code
+    # main.py
+    API_KEY = "hardcoded-key"  # Don't do this!
+    
+    # ✅ Good: Secrets in payload
+    act workflow run --name my-workflow --payload '{
+      "AC_HANDLER_ENV": {
+        "API_KEY": "your-key"
+      }
+    }'
+    ```
+    
+    ```python
+    # main.py
+    import os
+    
+    def main(payload):
+        api_key = os.environ.get("API_KEY")  # ✅ Read from environment
+    ```
+  </Accordion>
+
+  <Accordion title="Clean Up Build Artifacts">
+    Periodically remove old builds:
+    
+    ```bash
+    # Remove specific workflow builds
+    rm -rf ~/.act_cli/builds/old-workflow
+    
+    # Remove builds older than 30 days
+    find ~/.act_cli/builds -type d -mtime +30 -exec rm -rf {} +
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting Configuration
+
+<AccordionGroup>
+  <Accordion title="State File Corruption">
+    **Symptom:** CLI fails to read workflow state
+    
+    **Solution:**
+    ```bash
+    # Backup corrupted state
+    cp ~/.act_cli/state/123456789012/us-east-1/workflows.json \
+       ~/.act_cli/state/123456789012/us-east-1/workflows.json.backup
+    
+    # Reset state (WARNING: Loses local configuration)
+    rm ~/.act_cli/state/123456789012/us-east-1/workflows.json
+    
+    # Recreate workflows
+    act workflow create --name my-workflow
+    ```
+  </Accordion>
+
+  <Accordion title="Profile Not Found">
+    **Error:**
+    ```
+    Profile 'production' not found in ~/.aws/credentials
+    ```
+    
+    **Solution:**
+    ```bash
+    # List available profiles
+    cat ~/.aws/credentials | grep '\['
+    
+    # Configure missing profile
+    aws configure --profile production
+    ```
+  </Accordion>
+
+  <Accordion title="Region Mismatch">
+    **Issue:** Workflow not found in specified region
+    
+    **Solution:**
+    ```bash
+    # Check all regions
+    ls ~/.act_cli/state/123456789012/
+    
+    # View workflows in specific region
+    act workflow list --region us-east-1
+    act workflow list --region us-west-2
+    ```
+  </Accordion>
+
+  <Accordion title="Lock File Stuck">
+    **Symptom:** CLI hangs waiting for lock
+    
+    **Solution:**
+    ```bash
+    # Remove stale lock file
+    rm ~/.act_cli/state/123456789012-us-east-1.lock
+    
+    # Retry operation
+    act workflow deploy --name my-workflow --source-dir ./code
+    ```
+    
+    <Warning>
+    Only remove lock files if you're certain no other CLI operations are running.
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Commands Reference" icon="terminal" href="/cli/commands">
+    Explore all CLI commands
+  </Card>
+  <Card title="Deployment Guide" icon="rocket" href="/cli/deployment">
+    Deploy your workflows
+  </Card>
+  <Card title="CLI Overview" icon="book" href="/cli/overview">
+    Learn about CLI features
+  </Card>
+  <Card title="Installation" icon="download" href="/cli/installation">
+    Install and configure prerequisites
+  </Card>
+</CardGroup>

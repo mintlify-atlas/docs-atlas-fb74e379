@@ -1,0 +1,378 @@
+---
+title: State guardrails
+description: Control URL navigation and browser state with guardrail callbacks
+---
+
+State guardrails allow you to control which URLs the agent can visit during execution. You provide a callback function that inspects the browser state after each observation and decides whether to allow or block continued execution.
+
+## Overview
+
+State guardrails are useful for:
+- Preventing navigation to unauthorized domains
+- Blocking access to sensitive pages
+- Enforcing compliance requirements
+- Implementing URL allowlists and blocklists
+- Protecting against prompt injection attacks
+
+## How guardrails work
+
+After each browser observation, Nova Act calls your guardrail function with the current browser state. Your function returns either `PASS` (allow execution to continue) or `BLOCK` (stop execution and raise an error).
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+
+def my_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    # Inspect state.browser_url
+    if is_safe_url(state.browser_url):
+        return GuardrailDecision.PASS
+    return GuardrailDecision.BLOCK
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=my_guardrail
+) as nova:
+    nova.act("Navigate to the products page")
+```
+
+If the guardrail returns `BLOCK`, Nova Act raises an `ActStateGuardrailError` and stops execution.
+
+## GuardrailInputState
+
+The `GuardrailInputState` object contains information about the current browser state:
+
+<ParamField path="browser_url" type="str" required>
+  The current URL of the browser page
+</ParamField>
+
+```python
+from nova_act import GuardrailInputState
+from urllib.parse import urlparse
+
+def log_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    print(f"Current URL: {state.browser_url}")
+    
+    parsed = urlparse(state.browser_url)
+    print(f"Hostname: {parsed.hostname}")
+    print(f"Path: {parsed.path}")
+    
+    return GuardrailDecision.PASS
+```
+
+## GuardrailDecision
+
+Your guardrail function must return one of two values:
+
+<ResponseField name="PASS" type="GuardrailDecision">
+  Allow execution to continue
+</ResponseField>
+
+<ResponseField name="BLOCK" type="GuardrailDecision">
+  Stop execution and raise ActStateGuardrailError
+</ResponseField>
+
+```python
+from nova_act import GuardrailDecision
+
+# Allow
+return GuardrailDecision.PASS
+
+# Block
+return GuardrailDecision.BLOCK
+```
+
+## Examples
+
+### URL blocklist
+
+Block specific domains:
+
+```python
+from nova_act import NovaAct, GuardrailDecision, GuardrailInputState
+from urllib.parse import urlparse
+import fnmatch
+
+def url_blocklist_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    hostname = urlparse(state.browser_url).hostname
+    if not hostname:
+        return GuardrailDecision.BLOCK
+    
+    # Block these domains
+    blocked = [
+        "*.malicious-site.com",
+        "*.blocked-domain.com",
+        "dangerous-site.org"
+    ]
+    
+    for pattern in blocked:
+        if fnmatch.fnmatch(hostname, pattern):
+            return GuardrailDecision.BLOCK
+    
+    return GuardrailDecision.PASS
+
+with NovaAct(
+    starting_page="https://example.com",
+    state_guardrail=url_blocklist_guardrail
+) as nova:
+    nova.act("Navigate to the homepage")
+```
+
+### URL allowlist
+
+Only allow specific domains:
+
+```python
+def url_allowlist_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    hostname = urlparse(state.browser_url).hostname
+    if not hostname:
+        return GuardrailDecision.BLOCK
+    
+    # Only allow these domains
+    allowed = [
+        "example.com",
+        "*.example.com",
+        "trusted-partner.com"
+    ]
+    
+    for pattern in allowed:
+        if fnmatch.fnmatch(hostname, pattern):
+            return GuardrailDecision.PASS
+    
+    # Block everything else
+    return GuardrailDecision.BLOCK
+```
+
+### Hybrid approach
+
+Combine allowlist and blocklist:
+
+```python
+def hybrid_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    hostname = urlparse(state.browser_url).hostname
+    if not hostname:
+        return GuardrailDecision.BLOCK
+    
+    # Explicit blocklist takes precedence
+    blocked = ["*.blocked.com", "dangerous.org"]
+    for pattern in blocked:
+        if fnmatch.fnmatch(hostname, pattern):
+            return GuardrailDecision.BLOCK
+    
+    # Then check allowlist
+    allowed = ["*.example.com", "*.trusted.com"]
+    for pattern in allowed:
+        if fnmatch.fnmatch(hostname, pattern):
+            return GuardrailDecision.PASS
+    
+    # Block everything else
+    return GuardrailDecision.BLOCK
+```
+
+### Path-based restrictions
+
+Restrict access to specific paths:
+
+```python
+def path_restriction_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    parsed = urlparse(state.browser_url)
+    
+    # Block admin pages
+    if parsed.path.startswith("/admin/"):
+        return GuardrailDecision.BLOCK
+    
+    # Block API endpoints
+    if parsed.path.startswith("/api/"):
+        return GuardrailDecision.BLOCK
+    
+    # Block sensitive paths
+    sensitive_paths = ["/billing", "/settings/security", "/private"]
+    if any(parsed.path.startswith(p) for p in sensitive_paths):
+        return GuardrailDecision.BLOCK
+    
+    return GuardrailDecision.PASS
+```
+
+## Error handling
+
+When a guardrail blocks execution, an `ActStateGuardrailError` is raised:
+
+```python
+from nova_act import NovaAct, ActStateGuardrailError
+
+try:
+    with NovaAct(
+        starting_page="https://example.com",
+        state_guardrail=url_allowlist_guardrail
+    ) as nova:
+        nova.act("Navigate to the unauthorized page")
+except ActStateGuardrailError as e:
+    print(f"Guardrail blocked navigation: {e}")
+    # Log incident, alert security team, etc.
+```
+
+## Best practices
+
+### Design considerations
+
+<Tip>
+  Design guardrails to be fast. They're called after every observation, so slow guardrails will impact performance.
+</Tip>
+
+- **Keep it simple**: Guardrails should make quick decisions
+- **Be explicit**: Use explicit allowlists rather than implicit blocking
+- **Log violations**: Log when guardrails block actions for security audits
+- **Test thoroughly**: Test guardrails with various URL patterns
+
+### Security recommendations
+
+<Warning>
+  Guardrails are a defense-in-depth measure, not a replacement for proper input validation and prompt design.
+</Warning>
+
+- **Combine with other security measures**: Use guardrails alongside SecurityOptions and prompt validation
+- **Start restrictive**: Begin with strict allowlists and relax as needed
+- **Monitor and adjust**: Review guardrail logs to identify needed adjustments
+- **Handle edge cases**: Consider URLs with unusual formats, redirects, etc.
+
+### Performance tips
+
+```python
+import fnmatch
+from functools import lru_cache
+
+# Cache pattern matching for better performance
+@lru_cache(maxsize=1000)
+def matches_pattern(hostname: str, pattern: str) -> bool:
+    return fnmatch.fnmatch(hostname, pattern)
+
+def optimized_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    hostname = urlparse(state.browser_url).hostname
+    if not hostname:
+        return GuardrailDecision.BLOCK
+    
+    blocked = ["*.blocked.com", "*.dangerous.org"]
+    for pattern in blocked:
+        if matches_pattern(hostname, pattern):
+            return GuardrailDecision.BLOCK
+    
+    return GuardrailDecision.PASS
+```
+
+## Testing guardrails
+
+Test your guardrails independently:
+
+```python
+from nova_act import GuardrailInputState, GuardrailDecision
+
+def test_url_allowlist():
+    # Test allowed URLs
+    state = GuardrailInputState(browser_url="https://example.com/page")
+    assert url_allowlist_guardrail(state) == GuardrailDecision.PASS
+    
+    # Test blocked URLs
+    state = GuardrailInputState(browser_url="https://blocked.com/page")
+    assert url_allowlist_guardrail(state) == GuardrailDecision.BLOCK
+    
+    # Test edge cases
+    state = GuardrailInputState(browser_url="")
+    assert url_allowlist_guardrail(state) == GuardrailDecision.BLOCK
+
+test_url_allowlist()
+print("All guardrail tests passed!")
+```
+
+## Common patterns
+
+### Multi-stage guardrail
+
+```python
+def multi_stage_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    """Implement multiple stages of validation."""
+    
+    # Stage 1: Check for empty/invalid URLs
+    if not state.browser_url:
+        return GuardrailDecision.BLOCK
+    
+    parsed = urlparse(state.browser_url)
+    
+    # Stage 2: Protocol check
+    if parsed.scheme not in ["http", "https"]:
+        return GuardrailDecision.BLOCK
+    
+    # Stage 3: Domain validation
+    if not parsed.hostname:
+        return GuardrailDecision.BLOCK
+    
+    # Stage 4: Domain allowlist
+    allowed_domains = ["*.example.com", "*.trusted.org"]
+    if not any(fnmatch.fnmatch(parsed.hostname, p) for p in allowed_domains):
+        return GuardrailDecision.BLOCK
+    
+    # Stage 5: Path restrictions
+    if parsed.path.startswith("/admin/"):
+        return GuardrailDecision.BLOCK
+    
+    return GuardrailDecision.PASS
+```
+
+### Logging guardrail
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+def logging_guardrail(state: GuardrailInputState) -> GuardrailDecision:
+    """Log all URLs visited for audit purposes."""
+    logger.info(f"Guardrail check: {state.browser_url}")
+    
+    hostname = urlparse(state.browser_url).hostname
+    
+    if not is_allowed_domain(hostname):
+        logger.warning(f"Blocked navigation to: {state.browser_url}")
+        return GuardrailDecision.BLOCK
+    
+    logger.info(f"Allowed navigation to: {state.browser_url}")
+    return GuardrailDecision.PASS
+```
+
+## Troubleshooting
+
+<Accordion title="Guardrail blocking legitimate navigation">
+  Check your patterns:
+  - Verify wildcard patterns with `fnmatch.fnmatch()`
+  - Test with actual URLs from your workflow
+  - Consider subdomain matching (e.g., `*.example.com` vs `example.com`)
+</Accordion>
+
+<Accordion title="Guardrail not blocking malicious URLs">
+  Ensure:
+  - Patterns are comprehensive (consider all variations)
+  - Blocklist is checked before allowlist
+  - Default behavior is to block (fail closed)
+</Accordion>
+
+<Accordion title="Performance degradation">
+  Optimize your guardrail:
+  - Use caching for pattern matching
+  - Minimize external calls (database, API)
+  - Keep pattern lists reasonably sized
+  - Profile your guardrail function
+</Accordion>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Security guide" icon="shield-halved" href="/guides/security">
+    Learn about other security features
+  </Card>
+  <Card title="SecurityOptions" icon="lock" href="/api/security-options">
+    File access control and security settings
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle ActStateGuardrailError
+  </Card>
+  <Card title="API reference" icon="book" href="/api/guardrails">
+    Complete guardrail API documentation
+  </Card>
+</CardGroup>

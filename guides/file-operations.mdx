@@ -1,0 +1,531 @@
+---
+title: 'File Operations'
+description: 'Upload and download files, handle browser dialogs, and manage file permissions'
+---
+
+## Overview
+
+Nova Act supports file uploads and downloads through a combination of natural language commands and Playwright APIs. For security, file operations require explicit permission via `SecurityOptions`.
+
+## File Uploads
+
+### Basic File Upload
+
+To upload files, you must first grant permission via `allowed_file_upload_paths`:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+upload_filename = "/upload_path/upload_me.pdf"
+
+security_options = SecurityOptions(
+    allowed_file_upload_paths=["/upload_path/*"]
+)
+
+with NovaAct(
+    starting_page="https://example.com/upload",
+    security_options=security_options
+) as nova:
+    nova.act(f"upload {upload_filename} using the upload receipt button")
+```
+
+<Warning>
+**Important security note:** Pick `allowed_file_upload_paths` narrowly to minimize filesystem access and prevent data exfiltration by malicious websites.
+</Warning>
+
+### Upload Patterns
+
+<CodeGroup>
+```python Specific Directory
+SecurityOptions(allowed_file_upload_paths=["/home/user/uploads/*"])
+```
+
+```python Multiple Directories
+SecurityOptions(allowed_file_upload_paths=[
+    "/home/user/uploads/*",
+    "/home/user/documents/*"
+])
+```
+
+```python Specific File
+SecurityOptions(allowed_file_upload_paths=["/home/user/uploads/report.pdf"])
+```
+
+```python File Type Pattern
+SecurityOptions(allowed_file_upload_paths=["/home/user/uploads/*.pdf"])
+```
+
+```python All Paths (Not Recommended)
+SecurityOptions(allowed_file_upload_paths=["*"])
+```
+</CodeGroup>
+
+### Upload with Validation
+
+```python
+import os
+from nova_act import NovaAct, SecurityOptions
+
+def upload_file_safely(filepath: str, upload_url: str):
+    """Upload a file with validation."""
+    # Validate file exists
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}")
+    
+    # Validate file size
+    max_size = 10 * 1024 * 1024  # 10MB
+    if os.path.getsize(filepath) > max_size:
+        raise ValueError(f"File too large: {filepath}")
+    
+    # Get directory for security options
+    file_dir = os.path.dirname(filepath)
+    
+    security_options = SecurityOptions(
+        allowed_file_upload_paths=[f"{file_dir}/*"]
+    )
+    
+    with NovaAct(
+        starting_page=upload_url,
+        security_options=security_options
+    ) as nova:
+        # Navigate to upload form
+        nova.act("click the upload button to open the file dialog")
+        
+        # Upload the file
+        nova.act(f"select and upload {filepath}")
+        
+        # Wait for confirmation
+        result = nova.act_get("check if upload was successful")
+        return result.response
+
+# Usage
+result = upload_file_safely(
+    "/uploads/report.pdf",
+    "https://example.com/upload"
+)
+print(f"Upload result: {result}")
+```
+
+## File Downloads
+
+### Download via Button/Link
+
+Use Playwright's `expect_download` context manager:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com/downloads") as nova:
+    # Capture download
+    with nova.page.expect_download() as download_info:
+        nova.act("click on the download button")
+    
+    # Get temporary path
+    temp_path = download_info.value.path()
+    print(f"Downloaded to temporary path: {temp_path}")
+    
+    # Save permanently
+    download_info.value.save_as("/downloads/my_file.pdf")
+    print("File saved permanently")
+```
+
+<Note>
+**Important notes:**
+
+- The browser downloads to a temporary path managed by Playwright
+- Access temporary path via `download_info.value.path()`
+- Use `save_as()` to save permanently:
+  - With full path: `/path/to/my_file.pdf`
+  - With filename only: `my_file.pdf` (saves to current working directory)
+</Note>
+
+### Download Current Page
+
+#### HTML Content
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com/page") as nova:
+    # Get rendered HTML
+    html_content = nova.page.content()
+    
+    # Save to file
+    with open("/downloads/page.html", "w", encoding="utf-8") as f:
+        f.write(html_content)
+```
+
+#### PDF or Other Content
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com/document.pdf") as nova:
+    # Download current page content
+    response = nova.page.request.get(nova.page.url)
+    
+    # Save to file
+    with open("/downloads/document.pdf", "wb") as f:
+        f.write(response.body())
+```
+
+### Download with Progress Tracking
+
+```python
+import os
+from nova_act import NovaAct
+
+def download_with_progress(download_url: str, save_path: str):
+    """Download a file and track progress."""
+    with NovaAct(starting_page=download_url) as nova:
+        print("Initiating download...")
+        
+        with nova.page.expect_download() as download_info:
+            nova.act("click the download button")
+        
+        download = download_info.value
+        
+        # Get download info
+        print(f"Downloading: {download.suggested_filename}")
+        
+        # Save the file
+        download.save_as(save_path)
+        
+        # Verify download
+        if os.path.exists(save_path):
+            size = os.path.getsize(save_path)
+            print(f"✓ Download complete: {size:,} bytes")
+            return True
+        else:
+            print("✗ Download failed")
+            return False
+
+# Usage
+success = download_with_progress(
+    "https://example.com/downloads",
+    "/downloads/report.pdf"
+)
+```
+
+### Multiple File Downloads
+
+```python
+from nova_act import NovaAct
+
+def download_multiple_files(urls: list[str], save_dir: str):
+    """Download multiple files sequentially."""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    downloaded = []
+    
+    with NovaAct(starting_page=urls[0]) as nova:
+        for i, url in enumerate(urls, 1):
+            print(f"Downloading {i}/{len(urls)}: {url}")
+            
+            # Navigate to URL
+            nova.go_to_url(url)
+            
+            # Initiate download
+            with nova.page.expect_download() as download_info:
+                nova.act("click the download button")
+            
+            # Save file
+            filename = download_info.value.suggested_filename
+            save_path = os.path.join(save_dir, filename)
+            download_info.value.save_as(save_path)
+            
+            downloaded.append(save_path)
+            print(f"✓ Saved: {save_path}")
+    
+    return downloaded
+
+# Usage
+files = download_multiple_files(
+    [
+        "https://example.com/file1",
+        "https://example.com/file2",
+        "https://example.com/file3",
+    ],
+    "/downloads/batch"
+)
+print(f"Downloaded {len(files)} files")
+```
+
+## Browser Dialogs
+
+Playwright automatically dismisses browser native dialogs (alert, confirm, prompt). To handle them manually:
+
+### Handle Alert Dialogs
+
+```python
+from nova_act import NovaAct
+
+def handle_dialog(dialog):
+    """Handle dialog by printing message and accepting."""
+    print(f"Dialog message: {dialog.message}")
+    dialog.accept()  # Accept/OK
+    # dialog.dismiss()  # Cancel/dismiss
+
+with NovaAct(starting_page="https://example.com") as nova:
+    # Register handler before triggering dialog
+    nova.page.on("dialog", handle_dialog)
+    
+    # Trigger action that opens dialog
+    nova.act("click the delete button")
+    
+    # Unregister handler
+    nova.page.remove_listener("dialog", handle_dialog)
+```
+
+### Handle Confirm Dialogs
+
+```python
+def handle_confirm(dialog):
+    """Handle confirm dialog with conditional logic."""
+    print(f"Confirm dialog: {dialog.message}")
+    
+    # Accept if message contains certain text
+    if "Are you sure" in dialog.message:
+        dialog.accept()
+    else:
+        dialog.dismiss()
+
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.page.on("dialog", handle_confirm)
+    nova.act("submit the form")
+    nova.page.remove_listener("dialog", handle_confirm)
+```
+
+### Handle Prompt Dialogs
+
+```python
+def handle_prompt(dialog):
+    """Handle prompt dialog with input."""
+    print(f"Prompt: {dialog.message}")
+    
+    # Provide input text
+    dialog.accept("My Input Value")
+
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.page.on("dialog", handle_prompt)
+    nova.act("click the button that asks for my name")
+    nova.page.remove_listener("dialog", handle_prompt)
+```
+
+### Context Manager for Dialogs
+
+```python
+from contextlib import contextmanager
+from nova_act import NovaAct
+
+@contextmanager
+def dialog_handler(page, handler_func):
+    """Context manager for dialog handling."""
+    page.on("dialog", handler_func)
+    try:
+        yield
+    finally:
+        page.remove_listener("dialog", handler_func)
+
+with NovaAct(starting_page="https://example.com") as nova:
+    # Use context manager
+    with dialog_handler(nova.page, lambda d: d.accept()):
+        nova.act("click the button that shows an alert")
+    # Handler automatically removed
+```
+
+## File Dialog Handling
+
+For file chooser dialogs:
+
+```python
+from nova_act import NovaAct, SecurityOptions
+
+upload_path = "/uploads/document.pdf"
+
+security_options = SecurityOptions(
+    allowed_file_upload_paths=["/uploads/*"]
+)
+
+with NovaAct(
+    starting_page="https://example.com/upload",
+    security_options=security_options
+) as nova:
+    # Nova Act handles file dialogs automatically when you specify a filename
+    nova.act(f"upload {upload_path}")
+    
+    # Or use Playwright directly for more control
+    with nova.page.expect_file_chooser() as fc_info:
+        nova.act("click the upload button")
+    
+    file_chooser = fc_info.value
+    file_chooser.set_files(upload_path)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Validate Before Upload" icon="shield-check">
+    Always validate files before uploading:
+    
+    ```python
+    def validate_file(filepath: str) -> bool:
+        """Validate file before upload."""
+        # Check existence
+        if not os.path.exists(filepath):
+            return False
+        
+        # Check size (max 10MB)
+        if os.path.getsize(filepath) > 10 * 1024 * 1024:
+            return False
+        
+        # Check extension
+        allowed_extensions = [".pdf", ".txt", ".csv"]
+        if not any(filepath.endswith(ext) for ext in allowed_extensions):
+            return False
+        
+        return True
+    ```
+  </Accordion>
+
+  <Accordion title="Use Temporary Directories" icon="folder-tree">
+    Use temporary directories for staging:
+    
+    ```python
+    import tempfile
+    import shutil
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Copy file to temp location
+        temp_file = os.path.join(temp_dir, "file.pdf")
+        shutil.copy("/source/file.pdf", temp_file)
+        
+        # Upload from temp directory
+        security_options = SecurityOptions(
+            allowed_file_upload_paths=[f"{temp_dir}/*"]
+        )
+        # ... upload ...
+    # Temp directory automatically cleaned up
+    ```
+  </Accordion>
+
+  <Accordion title="Handle Download Failures" icon="triangle-exclamation">
+    Always handle download failures gracefully:
+    
+    ```python
+    try:
+        with nova.page.expect_download(timeout=30000) as download_info:
+            nova.act("click download")
+        
+        download_info.value.save_as(save_path)
+        
+        if not os.path.exists(save_path):
+            raise Exception("Download file not found")
+    
+    except Exception as e:
+        print(f"Download failed: {e}")
+        # Retry or handle error
+    ```
+  </Accordion>
+
+  <Accordion title="Clean Up Downloads" icon="broom">
+    Clean up downloaded files when done:
+    
+    ```python
+    download_path = "/downloads/temp_file.pdf"
+    
+    try:
+        # Use the file
+        process_file(download_path)
+    finally:
+        # Clean up
+        if os.path.exists(download_path):
+            os.remove(download_path)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Sandboxed File Operations
+
+```python
+import tempfile
+import os
+from nova_act import NovaAct, SecurityOptions
+
+def process_file_sandboxed(input_file: str, website_url: str):
+    """Process file in sandboxed environment."""
+    with tempfile.TemporaryDirectory() as sandbox:
+        # Copy input to sandbox
+        sandbox_input = os.path.join(sandbox, os.path.basename(input_file))
+        shutil.copy(input_file, sandbox_input)
+        
+        # Configure security for sandbox only
+        security_options = SecurityOptions(
+            allowed_file_upload_paths=[f"{sandbox}/*"],
+            allowed_file_open_paths=[f"{sandbox}/*"]
+        )
+        
+        with NovaAct(
+            starting_page=website_url,
+            security_options=security_options
+        ) as nova:
+            # Upload from sandbox
+            nova.act(f"upload {sandbox_input}")
+            
+            # Download result to sandbox
+            with nova.page.expect_download() as download_info:
+                nova.act("download the processed file")
+            
+            sandbox_output = os.path.join(sandbox, "output.pdf")
+            download_info.value.save_as(sandbox_output)
+            
+            # Copy result out of sandbox
+            shutil.copy(sandbox_output, "/output/processed.pdf")
+        
+        # Sandbox automatically cleaned up
+```
+
+## Troubleshooting
+
+### Upload Not Working
+
+<Steps>
+  <Step title="Check Security Options">
+    Ensure the file path is in `allowed_file_upload_paths`
+  </Step>
+  <Step title="Verify File Exists">
+    Check that the file exists and has read permissions
+  </Step>
+  <Step title="Check File Path Format">
+    Use absolute paths or paths relative to working directory
+  </Step>
+  <Step title="Review Prompt">
+    Make sure your prompt clearly identifies the upload button/action
+  </Step>
+</Steps>
+
+### Download Not Saving
+
+- Ensure the save directory exists and has write permissions
+- Check that `save_as()` is called with correct path
+- Verify the download actually completed (check temporary path first)
+- Increase timeout if downloads are slow: `nova.page.expect_download(timeout=60000)`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Security" icon="shield" href="/guides/security">
+    Learn more about file access security options
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle file operation errors gracefully
+  </Card>
+  <Card title="Authentication" icon="key" href="/guides/authentication-cookies">
+    Upload/download files in authenticated sessions
+  </Card>
+  <Card title="Logging" icon="chart-line" href="/guides/logging-traces">
+    Track file operations in logs and traces
+  </Card>
+</CardGroup>

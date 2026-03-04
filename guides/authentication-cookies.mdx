@@ -1,0 +1,353 @@
+---
+title: 'Authentication & Cookies'
+description: 'Persist browser state, manage cookies, and handle authenticated sessions'
+---
+
+## Overview
+
+Nova Act supports persistent browser sessions through user data directories. By default, Nova Act clones the Chromium user data directory and deletes it after each run. For authenticated sessions, you can specify a persistent directory to maintain cookies, local storage, and other browser state.
+
+## How It Works
+
+By default, Nova Act:
+1. Clones a Chromium user data directory to a temporary location
+2. Uses that directory for the session
+3. Deletes it when the session ends
+
+For authenticated sessions:
+1. Specify a user data directory path
+2. Disable cloning to persist changes
+3. Browser state (cookies, local storage) is saved between runs
+
+## Setting Up Authenticated Sessions
+
+### Step 1: Create Setup Script
+
+Create a script to authenticate and save the browser state:
+
+```python setup_auth.py
+import os
+from nova_act import NovaAct
+
+# Create directory for storing browser state
+user_data_dir = "/path/to/user-data-dir"
+os.makedirs(user_data_dir, exist_ok=True)
+
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir=user_data_dir,
+    clone_user_data_dir=False,  # Don't clone - save changes directly
+) as nova:
+    input("Log into your websites, then press enter...")
+    # You can also use nova.act() to help with login if needed
+
+print(f"User data dir saved to {user_data_dir}")
+```
+
+### Step 2: Use Authenticated Session
+
+Use the saved user data directory in your workflows:
+
+```python workflow.py
+from nova_act import NovaAct
+
+user_data_dir = "/path/to/user-data-dir"
+
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir=user_data_dir,
+    clone_user_data_dir=False,  # Use saved session directly
+) as nova:
+    # Browser is already authenticated
+    nova.act("Navigate to my account dashboard")
+    result = nova.act_get("Get my account balance")
+    print(f"Balance: {result.response}")
+```
+
+<Note>
+The convenience script is available in the SDK:
+```bash
+python -m nova_act.samples.setup_chrome_user_data_dir --user_data_dir /path/to/dir
+```
+</Note>
+
+## User Data Directory Modes
+
+### Mode 1: Cloned (Default)
+
+```python
+# Each run uses a fresh copy of the user data directory
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir="/path/to/profile",
+    clone_user_data_dir=True,  # Default
+) as nova:
+    # Changes are not persisted
+    pass
+```
+
+**Use when:**
+- Running multiple sessions in parallel
+- You want to preserve the original profile
+- Testing without affecting saved state
+
+### Mode 2: Direct (Persistent)
+
+```python
+# Changes are saved directly to the user data directory
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir="/path/to/profile",
+    clone_user_data_dir=False,
+) as nova:
+    # Changes are persisted
+    pass
+```
+
+**Use when:**
+- Setting up authenticated sessions
+- You want to persist cookies and login state
+- Running single sequential sessions
+
+<Warning>
+When running multiple NovaAct instances in parallel with the same `user_data_dir`, you MUST set `clone_user_data_dir=True`. Otherwise, browser instances will conflict.
+</Warning>
+
+## Using Default Chrome Browser (macOS Only)
+
+You can configure Nova Act to use your local Chrome installation with all your extensions and settings:
+
+```python
+from nova_act import NovaAct, rsync_from_default_user_data
+
+# Copy system Chrome profile to working directory
+working_user_data_dir = "/Users/$USER/nova_act_profiles/my_profile"
+rsync_from_default_user_data(working_user_data_dir)
+
+with NovaAct(
+    use_default_chrome_browser=True,
+    clone_user_data_dir=False,
+    user_data_dir=working_user_data_dir,
+    starting_page="https://example.com"
+) as nova:
+    nova.act("Do something with my extensions")
+```
+
+<Warning>
+**Important notes:**
+- This feature currently only works on macOS
+- Nova Act will quit your running Chrome and restart it with new arguments
+- Chrome will be quit when the session ends
+- Consider closing unnecessary tabs before running, as Chrome's performance can be affected by many open tabs
+</Warning>
+
+### Syncing Profile Data
+
+The `rsync_from_default_user_data()` function copies files from your system Chrome to a working directory:
+
+```python
+from nova_act import rsync_from_default_user_data
+
+# This mirrors your system Chrome profile
+# Overwrites existing files and deletes files not in source
+working_dir = "/path/to/working/profile"
+rsync_from_default_user_data(working_dir)
+```
+
+**Manual sync command:**
+```bash
+rsync -a --exclude="Singleton*" \
+  /Users/$USER/Library/Application\ Support/Google/Chrome/ \
+  /path/to/working/profile
+```
+
+<Note>
+Changes in the working directory are NOT automatically synced back to your system Chrome. You must manually sync if you want to persist changes.
+</Note>
+
+## Handling Passwords and Sensitive Data
+
+Never include passwords or sensitive information directly in your prompts. Instead, use Playwright APIs:
+
+```python
+from getpass import getpass
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com/login") as nova:
+    # Navigate to login and focus on password field
+    nova.act("enter username 'janedoe' and click on the password field")
+    
+    # Collect password securely and type it directly via Playwright
+    # This does NOT send the password over the network
+    password = getpass("Enter password: ")
+    nova.page.keyboard.type(password)
+    
+    # Now proceed with login
+    nova.act("click the sign in button")
+```
+
+<Warning>
+**Security considerations:**
+- Passwords typed via Playwright may still appear in screenshots if visible on screen
+- On Linux systems without a system-level keyring (Libsecret, KWallet), Chrome saves passwords in plaintext within the profile directory
+- If you instruct Nova Act to take an action on a screen showing sensitive information, that information will be included in screenshots
+</Warning>
+
+## Cookie Management Examples
+
+### Saving Cookies Programmatically
+
+```python
+import json
+from nova_act import NovaAct
+
+user_data_dir = "/path/to/profile"
+
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir=user_data_dir,
+    clone_user_data_dir=False,
+) as nova:
+    # Perform login
+    nova.act("click the login button")
+    # ... authenticate ...
+    
+    # Cookies are automatically saved to user_data_dir
+    # You can also export cookies manually if needed
+    cookies = nova.page.context.cookies()
+    with open(f"{user_data_dir}/cookies.json", "w") as f:
+        json.dump(cookies, f)
+```
+
+### Loading Pre-existing Cookies
+
+```python
+import json
+from nova_act import NovaAct
+
+user_data_dir = "/path/to/profile"
+
+with NovaAct(
+    starting_page="https://example.com",
+    user_data_dir=user_data_dir,
+    clone_user_data_dir=False,
+) as nova:
+    # Load cookies from file
+    with open(f"{user_data_dir}/cookies.json", "r") as f:
+        cookies = json.load(f)
+    
+    # Add cookies to context
+    nova.page.context.add_cookies(cookies)
+    
+    # Refresh to apply cookies
+    nova.page.reload()
+    
+    # Now the session is authenticated
+    nova.act("navigate to my dashboard")
+```
+
+## Profile Management Best Practices
+
+<AccordionGroup>
+  <Accordion title="Separate Profiles per Environment" icon="folder-tree">
+    Use different profiles for development, staging, and production:
+    
+    ```python
+    dev_profile = "/profiles/dev"
+    prod_profile = "/profiles/prod"
+    
+    profile = dev_profile if ENV == "dev" else prod_profile
+    ```
+  </Accordion>
+
+  <Accordion title="Regular Profile Cleanup" icon="broom">
+    Periodically recreate profiles to remove accumulated data:
+    
+    ```python
+    import shutil
+    
+    # Remove old profile
+    shutil.rmtree(user_data_dir, ignore_errors=True)
+    
+    # Recreate with fresh authentication
+    os.makedirs(user_data_dir)
+    # ... perform login ...
+    ```
+  </Accordion>
+
+  <Accordion title="Version Control" icon="code-branch">
+    Never commit user data directories to version control. Add to `.gitignore`:
+    
+    ```bash .gitignore
+    /profiles/
+    /user-data-dir/
+    *.chromium-profile/
+    ```
+  </Accordion>
+
+  <Accordion title="Backup Important Profiles" icon="floppy-disk">
+    Keep backups of authenticated profiles:
+    
+    ```python
+    import shutil
+    from datetime import datetime
+    
+    backup_name = f"profile_backup_{datetime.now().strftime('%Y%m%d')}"
+    shutil.copytree(user_data_dir, f"/backups/{backup_name}")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Session Not Persisting
+
+<Steps>
+  <Step title="Check clone_user_data_dir">
+    Ensure `clone_user_data_dir=False` when you want to save changes
+  </Step>
+  <Step title="Verify directory path">
+    Make sure the directory exists and has write permissions
+  </Step>
+  <Step title="Check for concurrent access">
+    Multiple processes accessing the same directory can cause issues
+  </Step>
+</Steps>
+
+### Login State Lost
+
+- Some websites use additional security measures beyond cookies
+- Session tokens may expire
+- Try recreating the authenticated session
+
+### Profile Corruption
+
+If a profile becomes corrupted:
+
+```python
+import shutil
+
+# Remove corrupted profile
+shutil.rmtree(user_data_dir, ignore_errors=True)
+
+# Create fresh profile
+os.makedirs(user_data_dir)
+# Re-authenticate
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Security Options" icon="shield" href="/guides/security">
+    Learn about security options and file access controls
+  </Card>
+  <Card title="Parallel Sessions" icon="server" href="/guides/parallel-sessions">
+    Use cloned profiles for parallel execution
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle authentication failures gracefully
+  </Card>
+  <Card title="File Operations" icon="file" href="/guides/file-operations">
+    Upload and download files in authenticated sessions
+  </Card>
+</CardGroup>

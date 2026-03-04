@@ -1,0 +1,318 @@
+---
+title: "ActResult"
+description: "Result objects returned from act() and act_get() calls"
+---
+
+## Overview
+
+The `ActResult` and `ActGetResult` classes represent the outcome of executing an `act()` or `act_get()` call. They contain metadata about the execution and, in the case of `ActGetResult`, the structured response from the agent.
+
+## ActResult
+
+The base result class returned from `act()` calls.
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act("Click the login button")
+    print(f"Steps: {result.metadata.num_steps_executed}")
+    print(f"Time: {result.metadata.time_worked_s}s")
+```
+
+### Fields
+
+<ResponseField name="metadata" type="ActMetadata" required>
+  Metadata about the act execution, including session information, timing data, and step counts.
+  
+  <Expandable title="ActMetadata fields">
+    <ResponseField name="session_id" type="str">
+      Unique identifier for the NovaAct session.
+    </ResponseField>
+    
+    <ResponseField name="act_id" type="str">
+      Unique identifier for this specific act call.
+    </ResponseField>
+    
+    <ResponseField name="num_steps_executed" type="int">
+      Number of browser actuation steps executed.
+    </ResponseField>
+    
+    <ResponseField name="start_time" type="float | None">
+      Unix timestamp when the act call started.
+    </ResponseField>
+    
+    <ResponseField name="end_time" type="float | None">
+      Unix timestamp when the act call ended.
+    </ResponseField>
+    
+    <ResponseField name="prompt" type="str">
+      The original prompt provided to the act call.
+    </ResponseField>
+    
+    <ResponseField name="step_server_times_s" type="list[float]">
+      List of server processing times in seconds for each step.
+    </ResponseField>
+    
+    <ResponseField name="time_worked_s" type="float | None">
+      Total approximate time the agent spent working, excluding human wait time.
+    </ResponseField>
+    
+    <ResponseField name="human_wait_time_s" type="float" default="0.0">
+      Total time spent waiting for human input.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```python
+from nova_act import NovaAct
+from datetime import datetime
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act("Search for products", max_steps=20, timeout=60)
+    
+    # Access metadata
+    metadata = result.metadata
+    print(f"Session ID: {metadata.session_id}")
+    print(f"Act ID: {metadata.act_id}")
+    print(f"Steps executed: {metadata.num_steps_executed}")
+    
+    # Format timestamps
+    if metadata.start_time:
+        start = datetime.fromtimestamp(metadata.start_time)
+        print(f"Started at: {start}")
+    
+    # Check timing
+    if metadata.time_worked_s:
+        print(f"Time worked: {metadata.time_worked_s:.2f}s")
+        if metadata.human_wait_time_s > 0:
+            print(f"Human wait time: {metadata.human_wait_time_s:.2f}s")
+```
+
+## ActGetResult
+
+Extended result class returned from `act_get()` calls that includes structured response data.
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "How many products are displayed?",
+        schema={"type": "integer"}
+    )
+    print(f"Count: {result.parsed_response}")
+    print(f"Valid JSON: {result.valid_json}")
+    print(f"Matches schema: {result.matches_schema}")
+```
+
+### Fields
+
+`ActGetResult` inherits all fields from `ActResult` and adds:
+
+<ResponseField name="response" type="str | None">
+  The raw string response from the model.
+</ResponseField>
+
+<ResponseField name="parsed_response" type="JsonValue | None">
+  The parsed JSON response if the model returned valid JSON matching the schema. This is the primary field to use for extracting structured data.
+  
+  <Note>`JsonValue` can be any valid JSON type: dict, list, str, int, float, bool, or None.</Note>
+</ResponseField>
+
+<ResponseField name="valid_json" type="bool | None">
+  Whether the response is valid JSON.
+</ResponseField>
+
+<ResponseField name="matches_schema" type="bool | None">
+  Whether the response matches the provided schema.
+</ResponseField>
+
+<ResponseField name="metadata" type="ActMetadata" required>
+  Metadata about the act execution. Same as ActResult.
+</ResponseField>
+
+### Methods
+
+#### without_response()
+
+Convert an `ActGetResult` to an `ActResult`, removing response fields.
+
+```python
+act_get_result = nova.act_get("Get product name", schema={"type": "string"})
+base_result = act_get_result.without_response()
+# base_result only has metadata, no response fields
+```
+
+<ResponseField name="result" type="ActResult">
+  A new ActResult containing only the metadata.
+</ResponseField>
+
+## Examples
+
+### Basic act() Result
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act("Click the submit button")
+    
+    # Check execution details
+    if result.metadata.num_steps_executed > 10:
+        print("Warning: Task took many steps")
+    
+    print(f"Completed at: {result.metadata.end_time}")
+```
+
+### Structured Data Extraction
+
+```python
+from nova_act import NovaAct, STRING_SCHEMA
+
+with NovaAct(starting_page="https://example.com") as nova:
+    # Extract a string
+    result = nova.act_get(
+        "What is the page title?",
+        schema=STRING_SCHEMA
+    )
+    
+    if result.matches_schema:
+        title = result.parsed_response
+        print(f"Page title: {title}")
+    else:
+        print(f"Failed to extract: {result.response}")
+```
+
+### Extract Integer
+
+```python
+with NovaAct(starting_page="https://example.com/products") as nova:
+    result = nova.act_get(
+        "How many products are on this page?",
+        schema={"type": "integer"}
+    )
+    
+    if result.valid_json and result.matches_schema:
+        count = result.parsed_response
+        print(f"Found {count} products")
+```
+
+### Extract Complex Object
+
+```python
+with NovaAct(starting_page="https://example.com/flights") as nova:
+    result = nova.act_get(
+        "Get the cheapest flight details",
+        schema={
+            "type": "object",
+            "properties": {
+                "price": {"type": "number"},
+                "departure_time": {"type": "string"},
+                "airline": {"type": "string"}
+            },
+            "required": ["price", "departure_time", "airline"]
+        }
+    )
+    
+    if result.matches_schema:
+        flight = result.parsed_response
+        print(f"Price: ${flight['price']}")
+        print(f"Departure: {flight['departure_time']}")
+        print(f"Airline: {flight['airline']}")
+```
+
+### Extract Array
+
+```python
+with NovaAct(starting_page="https://example.com/products") as nova:
+    result = nova.act_get(
+        "Extract all product names",
+        schema={
+            "type": "array",
+            "items": {"type": "string"}
+        }
+    )
+    
+    if result.matches_schema:
+        product_names = result.parsed_response
+        print(f"Found {len(product_names)} products:")
+        for name in product_names:
+            print(f"  - {name}")
+```
+
+### Error Handling
+
+```python
+from nova_act import NovaAct, ActInvalidModelGenerationError
+
+with NovaAct(starting_page="https://example.com") as nova:
+    try:
+        result = nova.act_get(
+            "Get the product price",
+            schema={"type": "number"}
+        )
+        
+        if not result.matches_schema:
+            print(f"Warning: Response doesn't match schema")
+            print(f"Raw response: {result.response}")
+            print(f"Valid JSON: {result.valid_json}")
+        else:
+            price = result.parsed_response
+            print(f"Price: ${price}")
+            
+    except ActInvalidModelGenerationError as e:
+        print(f"Model generation error: {e.message}")
+        print(f"Raw response: {e.raw_response}")
+```
+
+### Using with Pydantic Models
+
+For complex schemas, consider using Pydantic models to define your schema:
+
+```python
+from nova_act import NovaAct
+from pydantic import BaseModel
+import json
+
+class Product(BaseModel):
+    name: str
+    price: float
+    in_stock: bool
+
+# Get Pydantic model's JSON schema
+schema = Product.model_json_schema()
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "Get the first product details",
+        schema=schema
+    )
+    
+    if result.matches_schema:
+        # Parse into Pydantic model
+        product = Product(**result.parsed_response)
+        print(f"Product: {product.name}")
+        print(f"Price: ${product.price}")
+        print(f"In stock: {product.in_stock}")
+```
+
+## Best Practices
+
+<Tip>
+  **Use `act_get()` for data extraction**: When you need to extract information from a page, always use `act_get()` with an appropriate schema. Use `act()` only for actions that don't require a response.
+</Tip>
+
+<Tip>
+  **Check schema validation**: Always check `result.matches_schema` before using `result.parsed_response` to ensure data quality.
+</Tip>
+
+<Tip>
+  **Monitor step count**: Use `result.metadata.num_steps_executed` to identify tasks that may be too complex or need optimization.
+</Tip>
+
+<Warning>
+  If `result.matches_schema` is False, `result.parsed_response` may be None or may not match your expected type. Always validate before using the data.
+</Warning>

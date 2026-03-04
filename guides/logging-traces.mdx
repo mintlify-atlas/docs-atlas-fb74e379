@@ -1,0 +1,556 @@
+---
+title: 'Logging & Traces'
+description: 'Configure logging, view execution traces, and record video sessions'
+---
+
+## Overview
+
+Nova Act provides comprehensive logging and tracing capabilities to help you debug workflows, monitor execution, and analyze agent behavior. Traces are output as self-contained HTML files with screenshots, actions, and timing information.
+
+## Logging Configuration
+
+### Default Logging
+
+By default, Nova Act emits all logs at `logging.INFO` level or above:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    # Logs are automatically printed to console
+    nova.act("Search for products")
+```
+
+**Console output:**
+```
+2026-03-04 12:00:00 - nova_act - INFO - Starting browser session
+2026-03-04 12:00:05 - nova_act - INFO - abc1> Navigating to https://example.com
+2026-03-04 12:00:10 - nova_act - INFO - abc1> 👀 Taking observation
+2026-03-04 12:00:12 - nova_act - INFO - abc1> 💭 Thinking...
+2026-03-04 12:00:15 - nova_act - INFO - abc1> 🎬 Clicking element
+```
+
+### Configure Log Level
+
+Set the log level via environment variable:
+
+```bash
+# Show all logs (DEBUG level)
+export NOVA_ACT_LOG_LEVEL=10
+
+# Show only warnings and errors
+export NOVA_ACT_LOG_LEVEL=30
+
+# Show only errors
+export NOVA_ACT_LOG_LEVEL=40
+```
+
+Or in Python:
+
+```python
+import os
+import logging
+
+# Set before importing nova_act
+os.environ['NOVA_ACT_LOG_LEVEL'] = str(logging.DEBUG)
+
+from nova_act import NovaAct
+```
+
+**Log Levels:**
+- `10` - DEBUG (all messages)
+- `20` - INFO (default)
+- `30` - WARNING
+- `40` - ERROR
+- `50` - CRITICAL
+
+### Custom Logging Configuration
+
+```python
+import logging
+from nova_act import NovaAct
+
+# Configure Python logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('nova_act.log'),
+        logging.StreamHandler()
+    ]
+)
+
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.act("Process data")
+```
+
+## Viewing Traces
+
+### Automatic Trace Files
+
+After each `act()` call, Nova Act generates an HTML trace file:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act("Search for products")
+
+# Console output shows trace location:
+# ** View your act run here: /var/folders/.../act_abc123_output.html
+```
+
+Open the HTML file in a browser to view:
+- Screenshots at each step
+- Actions taken by the agent
+- Timing information
+- Observation details
+- Model reasoning
+
+### Custom Logs Directory
+
+Specify where traces are saved:
+
+```python
+from nova_act import NovaAct
+import os
+
+logs_dir = "/path/to/logs"
+os.makedirs(logs_dir, exist_ok=True)
+
+with NovaAct(
+    starting_page="https://example.com",
+    logs_directory=logs_dir
+) as nova:
+    nova.act("Search for products")
+
+print(f"Traces saved to: {logs_dir}")
+```
+
+**Directory Structure:**
+```
+logs_dir/
+├── session_abc123/
+│   ├── act_def456_output.html
+│   ├── act_def456.json
+│   └── screenshots/
+│       ├── step_001.png
+│       ├── step_002.png
+│       └── ...
+```
+
+## Recording Videos
+
+### Enable Video Recording
+
+```python
+from nova_act import NovaAct
+
+logs_dir = "/path/to/logs"
+
+with NovaAct(
+    starting_page="https://example.com",
+    logs_directory=logs_dir,
+    record_video=True  # Enable video recording
+) as nova:
+    nova.act("Complete workflow")
+
+print(f"Video saved to: {logs_dir}")
+```
+
+<Note>
+Video recording requires `logs_directory` to be specified. Videos are saved as `.webm` files in the logs directory.
+</Note>
+
+### Video Recording Options
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(
+    starting_page="https://example.com",
+    logs_directory="/path/to/logs",
+    record_video=True,
+    headless=False,  # Record in headed mode shows actual browser
+) as nova:
+    # All browser activity is recorded
+    nova.act("Step 1")
+    nova.act("Step 2")
+    nova.act("Step 3")
+
+# Video includes entire session from start to stop
+```
+
+## Session State Indicators
+
+Logs include emoji indicators showing agent state:
+
+- `👀` **OBSERVING** - Taking screenshot/analyzing page
+- `💭` **THINKING** - Model is processing
+- `🎬` **ACTING** - Executing browser action
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    nova.act("Click the search button")
+
+# Console output:
+# abc1> 👀 Taking observation
+# abc1> 💭 Planning next action  
+# abc1> 🎬 Clicking element
+```
+
+## Trace Analysis
+
+### Programmatic Access to Metadata
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act("Search for products")
+    
+    # Access metadata
+    metadata = result.metadata
+    print(f"Session ID: {metadata.session_id}")
+    print(f"Act ID: {metadata.act_id}")
+    print(f"Steps executed: {metadata.num_steps_executed}")
+    print(f"Start time: {metadata.start_time}")
+    print(f"End time: {metadata.end_time}")
+    print(f"Duration: {metadata.end_time - metadata.start_time:.2f}s")
+```
+
+### Extract ActGetResult
+
+```python
+from nova_act import NovaAct
+from pydantic import BaseModel
+
+class ProductInfo(BaseModel):
+    name: str
+    price: float
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "Get product name and price",
+        schema=ProductInfo.model_json_schema()
+    )
+    
+    print(f"Response: {result.response}")
+    print(f"Parsed: {result.parsed_response}")
+    print(f"Valid JSON: {result.valid_json}")
+    print(f"Matches schema: {result.matches_schema}")
+    
+    # Access metadata
+    print(f"Steps: {result.metadata.num_steps_executed}")
+```
+
+## Time Tracking
+
+Nova Act tracks approximate time worked, excluding human wait time:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act("Complete task")
+
+# Console output:
+# ⏱️ Approx. Time Worked: 11.8s
+```
+
+With human input:
+```
+⏱️  Approx. Time Worked: 28.3s (excluding 4.5s human wait)
+```
+
+<Note>
+**Disclaimer:** Time worked calculations are approximate and may have inaccuracies due to system timing variations, network latency, or other factors. Use for understanding execution patterns, not formal time tracking.
+</Note>
+
+## Storing Logs in S3
+
+### Using S3Writer
+
+```python
+import boto3
+from nova_act import NovaAct
+from nova_act.util.s3_writer import S3Writer
+
+# Create S3Writer
+boto_session = boto3.Session()
+s3_writer = S3Writer(
+    boto_session=boto_session,
+    s3_bucket_name="my-logs-bucket",
+    s3_prefix="nova-act-logs/",
+    metadata={"Environment": "Production"}
+)
+
+# Use with NovaAct
+with NovaAct(
+    starting_page="https://example.com",
+    record_video=True,
+    stop_hooks=[s3_writer]  # Upload logs on stop
+) as nova:
+    nova.act("Complete workflow")
+
+# Logs automatically uploaded to S3 when session ends
+```
+
+### Required S3 Permissions
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::my-logs-bucket",
+        "arn:aws:s3:::my-logs-bucket/nova-act-logs/*"
+      ]
+    }
+  ]
+}
+```
+
+### S3Writer Configuration
+
+```python
+from nova_act.util.s3_writer import S3Writer
+import boto3
+
+s3_writer = S3Writer(
+    boto_session=boto3.Session(
+        profile_name="my-profile",
+        region_name="us-east-1"
+    ),
+    s3_bucket_name="my-logs-bucket",
+    s3_prefix="logs/prod/",  # Optional prefix (like folder)
+    metadata={  # Optional metadata for S3 objects
+        "Environment": "Production",
+        "Application": "DataProcessor",
+        "Version": "1.0"
+    }
+)
+```
+
+## Debugging with Traces
+
+### Identifying Issues
+
+<Steps>
+  <Step title="Open Trace HTML">
+    Open the trace file in a web browser
+  </Step>
+  
+  <Step title="Review Screenshots">
+    Look at screenshots at each step to see what the agent saw
+  </Step>
+  
+  <Step title="Check Actions">
+    Review the actions taken - were they appropriate?
+  </Step>
+  
+  <Step title="Analyze Timing">
+    Check if any steps took unusually long
+  </Step>
+  
+  <Step title="Read Reasoning">
+    Review model reasoning to understand decision-making
+  </Step>
+</Steps>
+
+### Common Issues in Traces
+
+<AccordionGroup>
+  <Accordion title="Wrong Element Clicked" icon="hand-pointer">
+    **Symptoms:** Screenshot shows agent clicked wrong button
+    
+    **Solutions:**
+    - Add more specific identifiers in prompt
+    - Use element descriptions (color, position, text)
+    - Break into smaller steps
+  </Accordion>
+
+  <Accordion title="Stuck in Loop" icon="rotate">
+    **Symptoms:** Same actions repeated multiple times
+    
+    **Solutions:**
+    - Reduce max_steps to fail faster
+    - Add more explicit completion criteria
+    - Check for UI elements blocking view
+  </Accordion>
+
+  <Accordion title="Slow Execution" icon="hourglass">
+    **Symptoms:** Long gaps between steps
+    
+    **Solutions:**
+    - Check network latency to website
+    - Review observation_delay_ms setting
+    - Consider using headless mode
+  </Accordion>
+
+  <Accordion title="Unexpected Navigation" icon="route">
+    **Symptoms:** Agent navigated to wrong page
+    
+    **Solutions:**
+    - Add state guardrails to limit navigation
+    - Be more explicit about expected URL
+    - Check for redirects or popups
+  </Accordion>
+</AccordionGroup>
+
+## Production Logging
+
+### Structured Logging
+
+```python
+import logging
+import json
+from datetime import datetime
+from nova_act import NovaAct
+
+class StructuredLogger:
+    def __init__(self, log_file):
+        self.log_file = log_file
+    
+    def log_act_result(self, result, context):
+        """Log act result in structured format."""
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'session_id': result.metadata.session_id,
+            'act_id': result.metadata.act_id,
+            'num_steps': result.metadata.num_steps_executed,
+            'duration': result.metadata.end_time - result.metadata.start_time,
+            'prompt': result.metadata.prompt,
+            'context': context,
+        }
+        
+        with open(self.log_file, 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')
+
+logger = StructuredLogger('workflow_logs.jsonl')
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act("Process data")
+    logger.log_act_result(result, {'workflow': 'data_processing'})
+```
+
+### CloudWatch Integration
+
+For AWS deployments, logs automatically go to CloudWatch:
+
+```python
+from nova_act import NovaAct, workflow
+
+@workflow(
+    workflow_definition_name="my-workflow",
+    model_id="nova-act-latest",
+)
+def main(payload):
+    with NovaAct(starting_page="https://example.com") as nova:
+        # Logs automatically sent to CloudWatch
+        nova.act("Process data")
+```
+
+**Log Groups:**
+- `/aws/bedrock-agentcore/runtimes/{agent-id}-default`
+- `/aws/bedrock-agentcore/runtimes/{agent-id}-default/runtime-logs`
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Always Use logs_directory" icon="folder">
+    Specify a logs directory for persistent traces:
+    ```python
+    NovaAct(
+        logs_directory="/var/logs/nova-act",
+        record_video=True
+    )
+    ```
+  </Card>
+
+  <Card title="Rotate Log Files" icon="arrows-rotate">
+    Implement log rotation to prevent disk space issues:
+    ```python
+    from datetime import datetime
+    logs_dir = f"/logs/{datetime.now():%Y%m%d}"
+    ```
+  </Card>
+
+  <Card title="Use Structured Logging" icon="list-check">
+    Log in structured format for analysis:
+    ```python
+    log_entry = {
+        'timestamp': now(),
+        'session_id': session_id,
+        'duration': duration
+    }
+    ```
+  </Card>
+
+  <Card title="Monitor Log Size" icon="chart-line">
+    Keep track of log volume:
+    ```python
+    # Clean up old logs
+    if log_dir_size > MAX_SIZE:
+        clean_old_logs()
+    ```
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Trace Files Not Generated
+
+<Steps>
+  <Step title="Check logs_directory">
+    Ensure directory exists and has write permissions
+  </Step>
+  <Step title="Check disk space">
+    Ensure sufficient disk space for traces
+  </Step>
+  <Step title="Check for errors">
+    Review console logs for file write errors
+  </Step>
+</Steps>
+
+### S3 Upload Not Working
+
+<Steps>
+  <Step title="Check registration">
+    Look for "Registered stop hooks" message during initialization
+  </Step>
+  <Step title="Check permissions">
+    Verify IAM permissions for S3 PutObject
+  </Step>
+  <Step title="Check bucket">
+    Ensure bucket exists and is in correct region
+  </Step>
+  <Step title="Check execution">
+    Verify NovaAct context manager actually executed
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Use traces to debug errors and implement retries
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/guides/deployment">
+    Configure logging for production deployments
+  </Card>
+  <Card title="Parallel Sessions" icon="server" href="/guides/parallel-sessions">
+    Track logs for concurrent workflows
+  </Card>
+  <Card title="Security" icon="shield" href="/guides/security">
+    Monitor security events in logs
+  </Card>
+</CardGroup>

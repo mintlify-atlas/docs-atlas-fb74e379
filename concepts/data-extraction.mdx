@@ -1,0 +1,430 @@
+---
+title: 'Data Extraction'
+description: 'Extract structured data from web pages using act_get(), Pydantic schemas, and JSON Schema'
+---
+
+## Overview
+
+Nova Act can extract structured information from web pages using `act_get()` with JSON Schema validation. This enables you to get typed, validated responses from web automation tasks.
+
+## Using `act_get()`
+
+The `act_get()` method is designed specifically for extracting structured data. Unlike `act()`, it always provides the model with a JSON Schema for properly formatting responses.
+
+### Basic String Extraction
+
+By default, `act_get()` uses `STRING_SCHEMA`, so a response will always be available:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get("What is the main headline on this page?")
+    print(result.response)  # Returns a string
+```
+
+### When to Use `act_get()`
+
+<Tabs>
+  <Tab title="Use act_get()">
+    ```python
+    # When you need information back from the page
+    result = nova.act_get(
+        "How many colors do you see on this page?",
+        schema={"type": "integer"}
+    )
+    print(result.parsed_response)  # Integer value
+    ```
+  </Tab>
+  <Tab title="Use act()">
+    ```python
+    # When you only need to perform an action
+    nova.act("Click on the 'Learn More' button")
+    # No response needed
+    ```
+  </Tab>
+</Tabs>
+
+## Built-in Schemas
+
+Nova Act provides convenient schema constants:
+
+### STRING_SCHEMA
+
+```python
+from nova_act import NovaAct, STRING_SCHEMA
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "What is the product description?",
+        schema=STRING_SCHEMA  # {"type": "string"}
+    )
+    print(result.response)  # String
+```
+
+<Info>
+`STRING_SCHEMA` is the default schema for `act_get()`, so you can omit it:
+```python
+result = nova.act_get("What is the product description?")
+```
+</Info>
+
+### BOOL_SCHEMA
+
+```python
+from nova_act import NovaAct, BOOL_SCHEMA, ActInvalidModelGenerationError
+
+with NovaAct(starting_page="https://nova.amazon.com/act") as nova:
+    try:
+        result = nova.act_get(
+            "Am I logged in?",
+            schema=BOOL_SCHEMA  # {"type": "boolean"}
+        )
+    except ActInvalidModelGenerationError as e:
+        print(f"Invalid result: {e}")
+    else:
+        # result.parsed_response is a bool
+        if result.parsed_response:
+            print("You are logged in")
+        else:
+            print("You are not logged in")
+```
+
+## Pydantic Integration
+
+Use Pydantic models to define complex, structured data schemas:
+
+### Simple Extraction
+
+```python
+from nova_act import NovaAct
+from pydantic import BaseModel
+
+class ProductInfo(BaseModel):
+    name: str
+    price: float
+    in_stock: bool
+
+with NovaAct(starting_page="https://example.com/product") as nova:
+    result = nova.act_get(
+        "Extract the product name, price, and stock status",
+        schema=ProductInfo.model_json_schema()
+    )
+    
+    # Parse into Pydantic model
+    product = ProductInfo.model_validate(result.parsed_response)
+    print(f"Product: {product.name}")
+    print(f"Price: ${product.price}")
+    print(f"In Stock: {product.in_stock}")
+```
+
+### Nested Data Structures
+
+```python
+from pydantic import BaseModel
+from nova_act import NovaAct
+
+class Measurement(BaseModel):
+    value: float
+    unit: str
+
+class PlanetData(BaseModel):
+    gravity: Measurement
+    average_temperature: Measurement
+
+with NovaAct(starting_page="https://nova.amazon.com/act/gym/next-dot") as nova:
+    planet = 'Proxima Centauri b'
+    result = nova.act_get(
+        f"Go to the {planet} page and return the gravity and average temperature.",
+        schema=PlanetData.model_json_schema(),
+    )
+    
+    # Parse the response into the data model
+    planet_data = PlanetData.model_validate(result.parsed_response)
+    
+    # Access structured data
+    print(f"✓ {planet} data:")
+    print(f"  Gravity: {planet_data.gravity.value} {planet_data.gravity.unit}")
+    print(f"  Temp: {planet_data.average_temperature.value} {planet_data.average_temperature.unit}")
+```
+
+### Lists and Collections
+
+```python
+from pydantic import BaseModel
+from nova_act import NovaAct
+
+class Apartment(BaseModel):
+    address: str
+    price: str
+    beds: str
+    baths: str
+
+class ApartmentList(BaseModel):
+    apartments: list[Apartment]
+
+with NovaAct(starting_page="https://apartments.example.com") as nova:
+    result = nova.act_get(
+        "Return the currently visible list of apartments",
+        schema=ApartmentList.model_json_schema(),
+    )
+    
+    apartment_list = ApartmentList.model_validate(result.parsed_response)
+    
+    for apt in apartment_list.apartments:
+        print(f"{apt.beds} bed, {apt.baths} bath - {apt.price} - {apt.address}")
+```
+
+## Complex Extraction Example
+
+From the apartment search sample:
+
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pydantic import BaseModel
+from nova_act import NovaAct
+
+class Apartment(BaseModel):
+    address: str
+    price: str
+    beds: str
+    baths: str
+
+class ApartmentList(BaseModel):
+    apartments: list[Apartment]
+
+class TransitCommute(BaseModel):
+    commute_time_hours: int
+    commute_time_minutes: int
+    commute_distance_miles: float
+
+# Extract apartment listings
+with NovaAct(starting_page=apartment_url) as nova:
+    nova.act(
+        "Close any cookie banners. "
+        f"Search for apartments near {transit_city}, "
+        f"then filter for {bedrooms} bedrooms and {baths} bathrooms."
+    )
+    
+    all_apartments = []
+    for _ in range(5):
+        result = nova.act_get(
+            "Return the currently visible list of apartments",
+            schema=ApartmentList.model_json_schema(),
+        )
+        apartment_list = ApartmentList.model_validate(result.parsed_response)
+        all_apartments.extend(apartment_list.apartments)
+        
+        if len(all_apartments) >= 5:
+            break
+        nova.act("Scroll down once")
+
+# Calculate commute times in parallel
+def get_commute(apartment: Apartment) -> TransitCommute:
+    with NovaAct(starting_page=maps_url, headless=True) as nova:
+        result = nova.act_get(
+            f"Search for {transit_city} transit station. "
+            f"Click Directions. Enter '{apartment.address}' as starting point. "
+            f"Return the walking time and distance.",
+            schema=TransitCommute.model_json_schema(),
+        )
+        return TransitCommute.model_validate(result.parsed_response)
+
+apartments_with_commute = []
+with ThreadPoolExecutor() as executor:
+    futures = {executor.submit(get_commute, apt): apt for apt in all_apartments}
+    for future in as_completed(futures):
+        apartment = futures[future]
+        commute = future.result()
+        apartments_with_commute.append({
+            **apartment.model_dump(),
+            **commute.model_dump()
+        })
+```
+
+## The ActGetResult Object
+
+The `act_get()` method returns an `ActGetResult` object with several useful properties:
+
+```python
+from nova_act import NovaAct
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "What is the product price?",
+        schema={"type": "number"}
+    )
+    
+    # Raw string response from the model
+    print(result.response)  # "29.99"
+    
+    # Parsed JSON value (Python type)
+    print(result.parsed_response)  # 29.99 (float)
+    
+    # Whether the response is valid JSON
+    print(result.valid_json)  # True
+    
+    # Whether the response matches the schema
+    print(result.matches_schema)  # True
+    
+    # Metadata about the act execution
+    print(result.metadata.act_id)
+    print(result.metadata.steps_taken)
+```
+
+## Error Handling
+
+Handle schema validation errors gracefully:
+
+```python
+from nova_act import NovaAct, ActInvalidModelGenerationError
+from pydantic import BaseModel
+
+class Price(BaseModel):
+    amount: float
+    currency: str
+
+with NovaAct(starting_page="https://example.com") as nova:
+    try:
+        result = nova.act_get(
+            "Extract the product price",
+            schema=Price.model_json_schema()
+        )
+        price = Price.model_validate(result.parsed_response)
+        print(f"Price: {price.amount} {price.currency}")
+        
+    except ActInvalidModelGenerationError as e:
+        print(f"Failed to extract price: {e}")
+        # Handle the error - maybe retry or use a default
+```
+
+## Best Practices
+
+### 1. Put Extraction in Its Own Act Call
+
+Don't mix navigation and extraction:
+
+```python
+# Good - separate concerns
+nova.act("Navigate to the product page")
+result = nova.act_get("Extract the product details")
+
+# Bad - mixing navigation and extraction
+# result = nova.act_get("Navigate to the product page and extract details")
+```
+
+### 2. Always Use Schemas
+
+<Warning>
+Make sure you use a schema whenever you are expecting any kind of structured response, even just a bool (yes/no). If a schema is not provided to `act()`, the returned object will not contain a response.
+</Warning>
+
+```python
+# Good - explicit schema
+result = nova.act_get("Am I logged in?", schema=BOOL_SCHEMA)
+
+# Bad - using act() without schema for extraction
+# result = nova.act("Am I logged in?")  # No response!
+```
+
+### 3. Use Pydantic for Complex Data
+
+For anything more complex than a simple type, use Pydantic models:
+
+```python
+# Good - structured with Pydantic
+class UserProfile(BaseModel):
+    name: str
+    email: str
+    member_since: str
+
+result = nova.act_get(
+    "Extract my profile information",
+    schema=UserProfile.model_json_schema()
+)
+profile = UserProfile.model_validate(result.parsed_response)
+
+# Bad - manual schema without validation
+# schema = {
+#     "type": "object",
+#     "properties": {
+#         "name": {"type": "string"},
+#         "email": {"type": "string"},
+#         # ...
+#     }
+# }
+```
+
+### 4. Be Specific in Your Prompts
+
+Clearly describe what data to extract:
+
+```python
+# Good - specific and clear
+result = nova.act_get(
+    "Return the booking confirmation number displayed on the confirmation page"
+)
+
+# Bad - vague
+# result = nova.act_get("Get the confirmation info")
+```
+
+### 5. Validate Responses
+
+Always check that responses match your schema:
+
+```python
+result = nova.act_get(
+    "Extract the price",
+    schema={"type": "number"}
+)
+
+if not result.matches_schema:
+    print(f"Invalid response: {result.response}")
+    # Handle error
+else:
+    price = result.parsed_response
+    # Use the validated data
+```
+
+## Real-World Example
+
+Complete booking flow with data extraction:
+
+```python
+from pydantic import BaseModel
+from nova_act import NovaAct, tool
+
+class BookingConfirmation(BaseModel):
+    booking_number: str
+    total_price: float
+    departure_date: str
+
+@tool
+def get_traveller_info() -> dict[str, str]:
+    return {
+        "name": "John Doe",
+        "date_of_birth": "1/8/2025",
+        "payment_prepaid_code": "NOVAACT2025",
+    }
+
+with NovaAct(
+    starting_page="https://example.com/booking",
+    tools=[get_traveller_info]
+) as nova:
+    # Navigate and fill form
+    nova.act("Search for flights from Boston to Seattle")
+    nova.act("Select the cheapest non-stop flight")
+    nova.act("Fill in passenger details using get_traveller_info tool")
+    
+    # Extract confirmation
+    result = nova.act_get(
+        "Complete the booking and return the confirmation details",
+        schema=BookingConfirmation.model_json_schema()
+    )
+    
+    booking = BookingConfirmation.model_validate(result.parsed_response)
+    print(f"✓ Booking confirmed: {booking.booking_number}")
+    print(f"  Total: ${booking.total_price}")
+    print(f"  Departure: {booking.departure_date}")
+```

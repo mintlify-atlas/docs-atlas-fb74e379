@@ -1,0 +1,461 @@
+---
+title: "Schemas"
+description: "JSON schema constants and utilities for structured data extraction"
+---
+
+## Overview
+
+Nova Act provides JSON schema utilities for extracting structured data from web pages using `act_get()`. The SDK includes predefined schemas and validation functions for working with JSON responses.
+
+```python
+from nova_act import NovaAct, STRING_SCHEMA, BOOL_SCHEMA
+
+with NovaAct(starting_page="https://example.com") as nova:
+    # Extract string
+    title = nova.act_get("What is the page title?", schema=STRING_SCHEMA)
+    
+    # Extract boolean
+    is_logged_in = nova.act_get("Is the user logged in?", schema=BOOL_SCHEMA)
+```
+
+## Built-in Schemas
+
+### STRING_SCHEMA
+
+Schema for extracting string values.
+
+```python
+STRING_SCHEMA = {"type": "string"}
+```
+
+**Usage:**
+
+```python
+from nova_act import NovaAct, STRING_SCHEMA
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "What is the product name?",
+        schema=STRING_SCHEMA
+    )
+    product_name = result.parsed_response
+    print(product_name)  # Returns a string
+```
+
+<Note>`STRING_SCHEMA` is the default schema for `act_get()` when no schema is specified.</Note>
+
+### BOOL_SCHEMA
+
+Schema for extracting boolean values.
+
+```python
+BOOL_SCHEMA = {"type": "boolean"}
+```
+
+**Usage:**
+
+```python
+from nova_act import NovaAct, BOOL_SCHEMA
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "Is the submit button enabled?",
+        schema=BOOL_SCHEMA
+    )
+    is_enabled = result.parsed_response
+    print(is_enabled)  # Returns True or False
+```
+
+## Custom JSON Schemas
+
+You can define custom JSON schemas for extracting structured data.
+
+### Integer Schema
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "How many search results are displayed?",
+        schema={"type": "integer"}
+    )
+    count = result.parsed_response
+    print(f"Found {count} results")
+```
+
+### Number Schema
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "What is the price of the product?",
+        schema={"type": "number"}
+    )
+    price = result.parsed_response
+    print(f"Price: ${price}")
+```
+
+### Object Schema
+
+Extract structured objects with multiple fields:
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "Get the product details",
+        schema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "price": {"type": "number"},
+                "in_stock": {"type": "boolean"},
+                "rating": {"type": "number"}
+            },
+            "required": ["name", "price"]
+        }
+    )
+    
+    product = result.parsed_response
+    print(f"Product: {product['name']}")
+    print(f"Price: ${product['price']}")
+    print(f"In stock: {product.get('in_stock', 'Unknown')}")
+```
+
+### Array Schema
+
+Extract lists of items:
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    # Array of strings
+    result = nova.act_get(
+        "List all product names on this page",
+        schema={
+            "type": "array",
+            "items": {"type": "string"}
+        }
+    )
+    product_names = result.parsed_response
+    
+    # Array of objects
+    result = nova.act_get(
+        "Extract all products with their prices",
+        schema={
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "price": {"type": "number"}
+                }
+            }
+        }
+    )
+    products = result.parsed_response
+```
+
+### Nested Schema
+
+Create complex nested structures:
+
+```python
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "Get flight information",
+        schema={
+            "type": "object",
+            "properties": {
+                "flight_number": {"type": "string"},
+                "price": {"type": "number"},
+                "departure": {
+                    "type": "object",
+                    "properties": {
+                        "airport": {"type": "string"},
+                        "time": {"type": "string"},
+                        "terminal": {"type": "string"}
+                    }
+                },
+                "arrival": {
+                    "type": "object",
+                    "properties": {
+                        "airport": {"type": "string"},
+                        "time": {"type": "string"},
+                        "terminal": {"type": "string"}
+                    }
+                }
+            }
+        }
+    )
+    
+    flight = result.parsed_response
+    print(f"Flight: {flight['flight_number']}")
+    print(f"Departs: {flight['departure']['airport']} at {flight['departure']['time']}")
+```
+
+## Using Pydantic Models
+
+For complex schemas, Pydantic models provide type safety and validation:
+
+```python
+from nova_act import NovaAct
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
+class Address(BaseModel):
+    street: str
+    city: str
+    state: str
+    zip_code: str
+
+class Product(BaseModel):
+    name: str
+    price: float
+    in_stock: bool = True
+    rating: Optional[float] = None
+    reviews_count: int = Field(default=0, alias="reviewsCount")
+
+class SearchResults(BaseModel):
+    query: str
+    total_results: int
+    products: List[Product]
+
+# Get the JSON schema from Pydantic model
+schema = SearchResults.model_json_schema()
+
+with NovaAct(starting_page="https://example.com") as nova:
+    result = nova.act_get(
+        "Extract search results for 'laptop'",
+        schema=schema
+    )
+    
+    # Parse into Pydantic model for validation
+    if result.matches_schema:
+        search_results = SearchResults(**result.parsed_response)
+        print(f"Query: {search_results.query}")
+        print(f"Total results: {search_results.total_results}")
+        for product in search_results.products:
+            print(f"  {product.name}: ${product.price}")
+```
+
+## Schema Validation
+
+Nova Act automatically validates responses against the provided schema.
+
+```python
+from nova_act import NovaAct, ActInvalidModelGenerationError
+
+with NovaAct(starting_page="https://example.com") as nova:
+    try:
+        result = nova.act_get(
+            "Get product price",
+            schema={"type": "number"}
+        )
+        
+        # Check if response matches schema
+        if result.matches_schema:
+            price = result.parsed_response
+            print(f"Valid price: ${price}")
+        else:
+            print(f"Invalid response: {result.response}")
+            print(f"Valid JSON: {result.valid_json}")
+            
+    except ActInvalidModelGenerationError as e:
+        print(f"Model failed to generate valid response: {e.message}")
+```
+
+## Schema Validation Functions
+
+While these functions are used internally by Nova Act, you can also use them directly:
+
+### validate_jsonschema_schema()
+
+Validate that a schema is a valid JSON Schema (Draft 7).
+
+```python
+from nova_act.util.jsonschema import validate_jsonschema_schema
+import jsonschema
+
+schema = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"}
+    }
+}
+
+try:
+    validate_jsonschema_schema(schema)
+    print("Schema is valid")
+except jsonschema.SchemaError as e:
+    print(f"Invalid schema: {e}")
+```
+
+## Best Practices
+
+<Tip>
+  **Start simple**: Begin with basic types (string, number, boolean) and gradually add complexity as needed.
+</Tip>
+
+<Tip>
+  **Use Pydantic for complex schemas**: For objects with many fields or nested structures, Pydantic models provide better type safety and maintainability.
+</Tip>
+
+<Tip>
+  **Mark required fields**: Use `"required"` in your schema to specify which fields must be present.
+</Tip>
+
+<Tip>
+  **Always check validation**: Before using `result.parsed_response`, check `result.matches_schema` to ensure the data is valid.
+</Tip>
+
+<Warning>
+  Complex schemas with many nested levels may be harder for the model to follow correctly. Keep schemas as simple as possible.
+</Warning>
+
+## Common Patterns
+
+### Extract Single Value
+
+```python
+# String
+result = nova.act_get("What is the title?", schema=STRING_SCHEMA)
+
+# Number
+result = nova.act_get("What is the price?", schema={"type": "number"})
+
+# Boolean
+result = nova.act_get("Is this available?", schema=BOOL_SCHEMA)
+```
+
+### Extract Multiple Fields
+
+```python
+schema = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "price": {"type": "number"},
+        "available": {"type": "boolean"}
+    },
+    "required": ["title", "price"]
+}
+
+result = nova.act_get("Get product information", schema=schema)
+if result.matches_schema:
+    data = result.parsed_response
+    print(f"{data['title']}: ${data['price']}")
+```
+
+### Extract List
+
+```python
+# List of strings
+schema = {
+    "type": "array",
+    "items": {"type": "string"}
+}
+
+result = nova.act_get("List all product names", schema=schema)
+names = result.parsed_response
+
+# List of objects
+schema = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "price": {"type": "number"}
+        }
+    }
+}
+
+result = nova.act_get("Extract all products", schema=schema)
+products = result.parsed_response
+```
+
+### Optional Fields
+
+```python
+schema = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "price": {"type": "number"},
+        "discount": {"type": "number"},  # Optional
+        "rating": {"type": "number"}     # Optional
+    },
+    "required": ["name", "price"]  # Only name and price required
+}
+
+result = nova.act_get("Get product details", schema=schema)
+data = result.parsed_response
+
+# Handle optional fields
+name = data["name"]
+price = data["price"]
+discount = data.get("discount")  # May be None
+rating = data.get("rating", 0)   # Default to 0 if not present
+```
+
+## Complete Example
+
+```python
+from nova_act import NovaAct, ActInvalidModelGenerationError
+from pydantic import BaseModel
+from typing import List, Optional
+
+class FlightOption(BaseModel):
+    airline: str
+    flight_number: str
+    departure_time: str
+    arrival_time: str
+    price: float
+    stops: int
+    duration_minutes: int
+
+class FlightSearch(BaseModel):
+    origin: str
+    destination: str
+    date: str
+    flights: List[FlightOption]
+
+# Get schema from Pydantic model
+schema = FlightSearch.model_json_schema()
+
+with NovaAct(starting_page="https://example.com/flights") as nova:
+    # Search for flights
+    nova.act("Search for flights from Boston to Seattle on Feb 22")
+    
+    try:
+        # Extract structured data
+        result = nova.act_get(
+            "Extract all flight options with their details",
+            schema=schema
+        )
+        
+        if result.matches_schema:
+            # Parse into Pydantic model
+            flight_search = FlightSearch(**result.parsed_response)
+            
+            print(f"Flights from {flight_search.origin} to {flight_search.destination}")
+            print(f"Date: {flight_search.date}")
+            print(f"Found {len(flight_search.flights)} options:\n")
+            
+            for flight in sorted(flight_search.flights, key=lambda f: f.price):
+                print(f"{flight.airline} {flight.flight_number}")
+                print(f"  Departs: {flight.departure_time}")
+                print(f"  Arrives: {flight.arrival_time}")
+                print(f"  Price: ${flight.price}")
+                print(f"  Stops: {flight.stops}")
+                print()
+        else:
+            print(f"Response didn't match schema: {result.response}")
+            
+    except ActInvalidModelGenerationError as e:
+        print(f"Failed to extract flight data: {e.message}")
+```
+
+## See Also
+
+- [ActResult](/api/act-result) - For understanding response objects
+- [NovaAct.act_get()](/api/novaact#act_get) - For using schemas with act_get()
+- [Errors](/api/errors) - For handling schema validation errors

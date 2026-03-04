@@ -1,0 +1,468 @@
+---
+title: "Tools"
+description: "Custom tool registration and MCP integration for extending agent capabilities"
+---
+
+## Overview
+
+Tools allow you to extend the Nova Act agent with custom functions that it can call during task execution. The agent decides when to invoke tools based on your prompt and the tool descriptions.
+
+```python
+from nova_act import NovaAct, tool
+
+@tool
+def get_user_info() -> dict[str, str]:
+    """Get the current user's information."""
+    return {
+        "name": "John Doe",
+        "email": "john@example.com"
+    }
+
+with NovaAct(starting_page="https://example.com", tools=[get_user_info]) as nova:
+    nova.act("Fill out the registration form with my information")
+```
+
+## @tool Decorator
+
+The `@tool` decorator converts a Python function into a tool that the Nova Act agent can call.
+
+```python
+from nova_act import tool
+
+@tool
+def tool_name(param1: str, param2: int) -> dict:
+    """
+    Tool description that the agent will see.
+    
+    Args:
+        param1: Description of parameter 1
+        param2: Description of parameter 2
+    
+    Returns:
+        Description of return value
+    """
+    # Tool implementation
+    return {"result": "value"}
+```
+
+### Requirements
+
+<Note>
+  The `@tool` decorator comes from the `strands` library, which is included with Nova Act.
+</Note>
+
+**Tool functions must:**
+- Have type annotations for all parameters
+- Have a return type annotation
+- Include a docstring describing what the tool does
+- Be deterministic and side-effect free when possible
+
+## Creating Tools
+
+### Simple Data Provider Tool
+
+```python
+from nova_act import NovaAct, tool
+
+@tool
+def get_booking_info() -> dict[str, str]:
+    """
+    Provides traveler information needed for flight booking.
+    
+    Returns:
+        Dictionary with traveler details including name, date of birth,
+        emergency contact, and preferences.
+    """
+    return {
+        "name": "John Doe",
+        "date_of_birth": "01/15/1990",
+        "email": "john@example.com",
+        "phone": "555-0123",
+        "emergency_contact": "Jane Doe",
+        "emergency_phone": "555-0124"
+    }
+
+with NovaAct(
+    starting_page="https://example.com/booking",
+    tools=[get_booking_info]
+) as nova:
+    nova.act("Book a flight using my traveler information")
+```
+
+### Tool with Parameters
+
+```python
+from nova_act import NovaAct, tool
+
+@tool
+def calculate_discount(price: float, discount_code: str) -> float:
+    """
+    Calculate the discounted price based on a discount code.
+    
+    Args:
+        price: The original price
+        discount_code: The discount code to apply
+    
+    Returns:
+        The final price after discount
+    """
+    discounts = {
+        "SAVE10": 0.10,
+        "SAVE20": 0.20,
+        "SAVE50": 0.50
+    }
+    discount = discounts.get(discount_code.upper(), 0)
+    return price * (1 - discount)
+
+with NovaAct(
+    starting_page="https://example.com/checkout",
+    tools=[calculate_discount]
+) as nova:
+    result = nova.act_get(
+        "What would be the final price if I apply code SAVE20 to a $100 item?",
+        schema={"type": "number"}
+    )
+    print(f"Final price: ${result.parsed_response}")
+```
+
+### Database Query Tool
+
+```python
+from nova_act import NovaAct, tool
+import sqlite3
+
+@tool
+def query_customer(customer_id: int) -> dict[str, str | None]:
+    """
+    Query customer information from the database.
+    
+    Args:
+        customer_id: The unique customer ID
+    
+    Returns:
+        Customer information including name, email, and address
+    """
+    conn = sqlite3.connect("customers.db")
+    cursor = conn.execute(
+        "SELECT name, email, address FROM customers WHERE id = ?",
+        (customer_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return {
+            "name": row[0],
+            "email": row[1],
+            "address": row[2]
+        }
+    return {"name": None, "email": None, "address": None}
+
+with NovaAct(
+    starting_page="https://example.com/admin",
+    tools=[query_customer]
+) as nova:
+    nova.act("Look up customer 12345 and update their shipping address")
+```
+
+### API Integration Tool
+
+```python
+from nova_act import NovaAct, tool
+import requests
+
+@tool
+def get_weather(city: str) -> dict[str, str | float]:
+    """
+    Get current weather information for a city.
+    
+    Args:
+        city: Name of the city
+    
+    Returns:
+        Weather information including temperature, conditions, and humidity
+    """
+    response = requests.get(
+        f"https://api.weather.com/v1/current",
+        params={"city": city, "api_key": "your-key"}
+    )
+    data = response.json()
+    return {
+        "temperature": data["temp"],
+        "conditions": data["conditions"],
+        "humidity": data["humidity"]
+    }
+
+with NovaAct(
+    starting_page="https://example.com/travel",
+    tools=[get_weather]
+) as nova:
+    nova.act("Check the weather in Seattle and book a hotel if it's sunny")
+```
+
+## Using Multiple Tools
+
+You can register multiple tools that the agent can use:
+
+```python
+from nova_act import NovaAct, tool
+
+@tool
+def get_user_preferences() -> dict[str, str]:
+    """
+    Get user's saved preferences.
+    """
+    return {
+        "preferred_airline": "Delta",
+        "seat_preference": "window",
+        "meal_preference": "vegetarian"
+    }
+
+@tool
+def get_payment_info() -> dict[str, str]:
+    """
+    Get user's payment information.
+    """
+    return {
+        "card_type": "Visa",
+        "card_last_four": "1234",
+        "expiry": "12/25"
+    }
+
+@tool
+def get_loyalty_number(airline: str) -> str:
+    """
+    Get user's loyalty program number for an airline.
+    
+    Args:
+        airline: Name of the airline
+    
+    Returns:
+        Loyalty program number
+    """
+    loyalty_numbers = {
+        "Delta": "DL123456789",
+        "United": "UA987654321",
+        "American": "AA456789123"
+    }
+    return loyalty_numbers.get(airline, "")
+
+with NovaAct(
+    starting_page="https://example.com/flights",
+    tools=[get_user_preferences, get_payment_info, get_loyalty_number]
+) as nova:
+    nova.act(
+        "Book a flight from Boston to Seattle using my preferences, "
+        "payment info, and loyalty number"
+    )
+```
+
+## Tool Registration
+
+Tools can be registered in two ways:
+
+### 1. Constructor Parameter
+
+```python
+from nova_act import NovaAct, tool
+
+@tool
+def my_tool() -> dict:
+    """Tool description."""
+    return {"data": "value"}
+
+nova = NovaAct(
+    starting_page="https://example.com",
+    tools=[my_tool]  # Register tools here
+)
+```
+
+### 2. Custom Actuator
+
+For advanced use cases, implement a custom actuator:
+
+```python
+from nova_act import tool
+from nova_act.tools.browser.default import DefaultNovaLocalBrowserActuator
+from typing import Sequence
+
+class MyCustomActuator(DefaultNovaLocalBrowserActuator):
+    @tool
+    def custom_action(self) -> str:
+        """Custom action implementation."""
+        return "action result"
+    
+    def list_actions(self) -> Sequence:
+        # Include parent actions plus custom ones
+        return super().list_actions() + [self.custom_action]
+
+with NovaAct(
+    starting_page="https://example.com",
+    actuator=MyCustomActuator
+) as nova:
+    nova.act("Use custom action")
+```
+
+## MCP Integration
+
+Nova Act supports Model Context Protocol (MCP) for integrating external tools and services.
+
+<Note>
+  MCP integration requires additional setup. See the MCP documentation for details on creating MCP servers.
+</Note>
+
+```python
+from nova_act import NovaAct
+# MCP integration example (requires additional MCP setup)
+
+with NovaAct(
+    starting_page="https://example.com",
+    # MCP tools are automatically discovered
+) as nova:
+    nova.act("Use MCP tool to complete task")
+```
+
+## Best Practices
+
+<Tip>
+  **Clear descriptions**: Write detailed docstrings. The agent uses these to understand when and how to use your tools.
+</Tip>
+
+<Tip>
+  **Type annotations**: Always include type hints. They help the agent understand expected inputs and outputs.
+</Tip>
+
+<Tip>
+  **Keep tools focused**: Each tool should do one thing well. Break complex operations into multiple tools.
+</Tip>
+
+<Tip>
+  **Return structured data**: Return dictionaries or objects rather than plain strings when possible.
+</Tip>
+
+<Warning>
+  Tools should be fast. Slow tools can cause the agent to timeout. For expensive operations, consider caching or background processing.
+</Warning>
+
+<Warning>
+  Tools are called by AI. Validate inputs and handle errors gracefully. Never assume tool inputs are safe or valid.
+</Warning>
+
+## Error Handling in Tools
+
+```python
+from nova_act import NovaAct, tool
+
+@tool
+def query_database(user_id: int) -> dict[str, str | None]:
+    """
+    Query user information from database.
+    
+    Args:
+        user_id: The user ID to query
+    
+    Returns:
+        User information or empty dict if not found
+    """
+    try:
+        # Database query logic
+        result = db.query("SELECT * FROM users WHERE id = ?", (user_id,))
+        if result:
+            return {"name": result[0], "email": result[1]}
+        return {"name": None, "email": None}
+    except Exception as e:
+        # Log error and return safe default
+        print(f"Database error: {e}")
+        return {"error": str(e)}
+
+with NovaAct(
+    starting_page="https://example.com",
+    tools=[query_database]
+) as nova:
+    nova.act("Look up user 123")
+```
+
+## Complete Example
+
+```python
+from nova_act import NovaAct, tool
+import os
+
+@tool
+def get_traveler_info() -> dict[str, str]:
+    """
+    Provides the necessary traveler information to book a flight.
+    
+    Returns:
+        Dictionary containing name, date of birth, emergency contact,
+        medical information, cabin selection, and payment details.
+    """
+    return {
+        "name": "John Doe",
+        "date_of_birth": "1/8/1990",
+        "emergency_contact_name": "Jane Smith",
+        "emergency_contact_relationship": "Spouse",
+        "emergency_contact_phone": "555-555-5555",
+        "medical_has_traveled_interstellar": "yes",
+        "medical_implants": "no",
+        "cabin_selection": "premium",
+        "additional_cargo": "no",
+        "payment_prepaid_code": "NOVAACT2025",
+    }
+
+@tool
+def get_frequent_flyer_number(airline: str) -> str:
+    """
+    Get the traveler's frequent flyer number for a specific airline.
+    
+    Args:
+        airline: Name of the airline
+    
+    Returns:
+        The frequent flyer number or empty string if not found
+    """
+    numbers = {
+        "Delta": "DL123456789",
+        "United": "UA987654321",
+        "American": "AA456789123",
+    }
+    return numbers.get(airline, "")
+
+@tool
+def calculate_total_cost(base_price: float, add_baggage: bool = False) -> float:
+    """
+    Calculate total flight cost including optional baggage.
+    
+    Args:
+        base_price: Base ticket price
+        add_baggage: Whether to add checked baggage fee
+    
+    Returns:
+        Total cost including all fees
+    """
+    total = base_price
+    if add_baggage:
+        total += 35.00  # Baggage fee
+    total += 25.00  # Booking fee
+    return round(total, 2)
+
+# Use all tools together
+with NovaAct(
+    starting_page="https://nova.amazon.com/act/gym/next-dot/booking/step/1",
+    tools=[get_traveler_info, get_frequent_flyer_number, calculate_total_cost]
+) as nova:
+    # Agent will automatically call tools as needed
+    result = nova.act_get(
+        "Book a flight and return the booking confirmation number",
+        schema={"type": "string"}
+    )
+    
+    print(f"Booking number: {result.parsed_response}")
+    print(f"Completed in {result.metadata.num_steps_executed} steps")
+```
+
+## See Also
+
+- [NovaAct Constructor](/api/novaact#constructor) - For registering tools
+- [Examples](https://github.com/amazon-nova-act/examples) - Tool usage examples
+- [Strands Documentation](https://github.com/amazon-nova-act/strands) - Tool decorator details

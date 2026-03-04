@@ -1,0 +1,332 @@
+---
+title: 'Prompting Best Practices'
+description: 'Learn how to write effective prompts for Nova Act to achieve reliable browser automation'
+---
+
+## Overview
+
+The quality of your prompts directly impacts Nova Act's reliability and success rate. Nova Act works most reliably when tasks can be accomplished in fewer than 30 steps. This guide covers best practices for writing effective prompts.
+
+## Core Principles
+
+### 1. Be Direct and Succinct
+
+Tell the agent exactly what to do, not what you want to achieve. Avoid conversational or exploratory language.
+
+<Tabs>
+  <Tab title="Don't">
+    ```python
+    nova.act("Let's see what routes vta offers")
+    ```
+    This is too conversational and unclear about the specific action needed.
+  </Tab>
+  <Tab title="Do">
+    ```python
+    nova.act("Navigate to the routes tab")
+    ```
+    This is direct and specifies exactly what action to take.
+  </Tab>
+</Tabs>
+
+<Tabs>
+  <Tab title="Don't">
+    ```python
+    nova.act_get(
+        "I want to go and meet a friend. I should figure out when the Orange Line comes next."
+    )
+    ```
+    This includes unnecessary context and is not action-focused.
+  </Tab>
+  <Tab title="Do">
+    ```python
+    nova.act_get(
+        f"Find the next departure time for the Orange Line from Government Center after {time}"
+    )
+    ```
+    This is specific, direct, and includes relevant parameters.
+  </Tab>
+</Tabs>
+
+### 2. Provide Complete Instructions
+
+Specify all the details the agent needs to make decisions. Don't leave choices or values ambiguous.
+
+<Tabs>
+  <Tab title="Don't">
+    ```python
+    nova.act("book me a hotel that costs less than $100 with the highest star rating")
+    ```
+    Missing critical details: dates, location, number of guests, bed preferences.
+  </Tab>
+  <Tab title="Do">
+    ```python
+    nova.act(
+        f"book a hotel for two adults in Houston between {startdate} and {enddate} "
+        f"that costs less than $100 per night with the highest star rating. "
+        f"two queen beds preferred but single king also ok. "
+        f"stop when you get to the enter customer details or payment page."
+    )
+    ```
+    Includes all necessary details and clear stopping criteria.
+  </Tab>
+</Tabs>
+
+### 3. Break Up Large Tasks
+
+Split complex multi-step workflows into smaller, focused `act()` calls. This improves reliability and makes debugging easier.
+
+<Tabs>
+  <Tab title="Don't">
+    ```python
+    nova.act(
+        "book me a hotel that costs less than $100 with the highest star rating "
+        "then find the closest car rental and get me car there, "
+        "finally find a lunch spot nearby and book it at 12:30pm"
+    )
+    ```
+    This combines three different tasks into one prompt.
+  </Tab>
+  <Tab title="Do">
+    ```python
+    hotel_address = nova.act_get(
+        f"book a hotel for two adults in Houston between {startdate} and {enddate} "
+        f"that costs less than $100 per night with the highest star rating. "
+        f"two queen beds preferred but single king also ok. "
+        f"return the address of the hotel you booked."
+    ).response
+    
+    nova.act(f"book a restaurant near {hotel_address} at 12:30pm for two people")
+    
+    nova.act(
+        f"rent a small sized car between {startdate} and {enddate} "
+        f"from a car rental place near {hotel_address}"
+    )
+    ```
+    Each task is separate, and results flow between them.
+  </Tab>
+</Tabs>
+
+#### Further Breaking Down Tasks
+
+If the agent still struggles, break it down even more:
+
+```python
+# Search first
+nova.act(
+    f"search for hotels for two adults in Houston between {startdate} and {enddate}"
+)
+
+# Then sort
+nova.act("sort by avg customer review")
+
+# Then book and extract
+hotel_address = nova.act_get(
+    "book the first hotel that is $100 or less. "
+    "prefer two queen beds if there is an option. "
+    "return the address of the hotel you booked."
+).response
+
+# Continue with restaurant
+nova.act(
+    f"book a restaurant near {hotel_address} at 12:30pm on {startdate} for two people"
+)
+
+# Car rental
+nova.act(f"search for car rental places near {hotel_address} and navigate to the closest one's website")
+nova.act(
+    f"rent a small sized car between {startdate} and {enddate}, pickup time 12pm, drop-off 12pm."
+)
+```
+
+## Writing Effective Prompts
+
+### Specify Actions Clearly
+
+```python
+# Good - action-focused
+nova.act("Click the submit button")
+nova.act("Scroll down once")
+nova.act("Type 'search query' into the search field")
+
+# Bad - outcome-focused without clear action
+nova.act("I need to submit this form")
+nova.act("Show me more results")
+nova.act("Look for something")
+```
+
+### Include Contextual Hints
+
+If Nova Act struggles with specific UI elements or navigation, add hints:
+
+```python
+# Add hints about UI interaction
+nova.act(
+    "search for cats. type enter to initiate the search."
+)
+
+# Guide navigation paths
+nova.act(
+    "Navigate to the settings page. The settings link is in the top right corner menu."
+)
+
+# Specify what to avoid
+nova.act(
+    "Find the price of the first product. Don't click on any ads or sponsored results."
+)
+```
+
+### Use Variables for Dynamic Data
+
+```python
+from datetime import datetime, timedelta
+
+start_date = datetime.now()
+end_date = start_date + timedelta(days=7)
+destination = "San Francisco"
+guests = 2
+
+nova.act(
+    f"Search for hotels in {destination} "
+    f"from {start_date.strftime('%B %d')} to {end_date.strftime('%B %d')} "
+    f"for {guests} guests"
+)
+```
+
+## Date Handling
+
+Specify dates in absolute time format:
+
+```python
+# Good - absolute dates
+nova.act("select dates march 23 to march 28")
+nova.act("enter departure date February 15, 2026")
+
+# Avoid relative dates
+# nova.act("select dates next week")  # Ambiguous
+```
+
+## Handling Extraction
+
+When you need information back from the page, be explicit about what you want:
+
+```python
+# Clearly state what to return
+result = nova.act_get(
+    "Navigate to the confirmation page and return the booking confirmation number"
+)
+
+# Bad - unclear what should be returned
+# result = nova.act_get("Go to the confirmation page")  # What should be returned?
+```
+
+## Common Patterns
+
+### Search and Filter
+
+```python
+# Clear, step-by-step approach
+nova.act(
+    "Close any cookie banners. "
+    f"Search for apartments near {city}, "
+    f"then filter for {bedrooms} bedrooms and {baths} bathrooms. "
+    "Close any dialogs that get in the way of your task. "
+    "Ensure the results mode is set to List."
+)
+```
+
+### Form Filling
+
+```python
+# Be explicit about each field
+nova.act(
+    "Fill in the form with the following details: "
+    "Name: John Doe, "
+    "Email: john@example.com, "
+    "Phone: 555-1234. "
+    "Do not submit yet."
+)
+```
+
+### Navigation with Validation
+
+```python
+# Specify the expected outcome
+nova.act(
+    "Click on the Products tab and wait for the product grid to load"
+)
+```
+
+## Handling Common Challenges
+
+### Obstacle Navigation
+
+```python
+# Proactively handle common obstacles
+nova.act(
+    "Close any cookie banners or popups if they appear, "
+    "then click the Sign In button"
+)
+```
+
+### Search Initiation
+
+If the search button is hard to find:
+
+```python
+nova.act("Type 'laptops' in the search box and press enter to search")
+```
+
+### Multi-Step Forms
+
+Break forms into stages:
+
+```python
+# Step 1: Personal info
+nova.act("Fill in name and email fields, then click Next")
+
+# Step 2: Address
+nova.act("Fill in the address form with [details], then click Next")
+
+# Step 3: Review
+confirmation = nova.act_get("Review the details and click Submit. Return the confirmation number.")
+```
+
+## Testing and Iteration
+
+When developing prompts:
+
+1. **Start simple**: Begin with basic prompts and add detail as needed
+2. **Observe failures**: When `act()` goes off track, enhance the prompt with hints
+3. **Break it down**: If reliability is inconsistent, split into smaller steps
+4. **Add constraints**: Specify stopping conditions and what to avoid
+
+### Example: Iterative Refinement
+
+```python
+# Version 1 - Too vague
+# nova.act("Find a flight")
+
+# Version 2 - More specific but missing details
+# nova.act("Search for flights from Boston to Seattle")
+
+# Version 3 - Complete and actionable
+nova.act(
+    f"Search for round-trip flights from Boston to Seattle "
+    f"departing {departure_date} and returning {return_date} "
+    f"for {num_passengers} passengers. "
+    f"Filter for non-stop flights under $500. "
+    f"Sort by best value."
+)
+```
+
+## Best Practices Summary
+
+<Note>
+1. **Be direct** - Use imperative commands, not conversational language
+2. **Be complete** - Include all necessary details and constraints
+3. **Break it up** - Split complex tasks into focused `act()` calls under 30 steps each
+4. **Add hints** - Guide the agent with contextual information when needed
+5. **Use absolute values** - Especially for dates and quantities
+6. **Specify returns** - Clearly state what information you want back with `act_get()`
+7. **Iterate** - Refine prompts based on observed behavior
+</Note>

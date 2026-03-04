@@ -1,97 +1,330 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: Amazon Nova Act Documentation
+mode: custom
 ---
 
-## Setting up
+<div className="relative w-full overflow-hidden dark:bg-[#0f1117] bg-white">
+  {/* Hero Section */}
+  <div className="relative w-full py-20 px-4 sm:px-6 lg:px-8" style={{
+    background: 'linear-gradient(135deg, #d239ee 0%, #9e3cfc 50%, #5B2A83 100%)'
+  }}>
+    <div className="max-w-6xl mx-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+        <div className="lg:col-span-7">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
+            Build AI agents that automate UI workflows
+          </h1>
+          <p className="text-lg sm:text-xl text-white/90 mb-8 max-w-2xl">
+            Amazon Nova Act is a Python SDK for building and deploying highly reliable AI agents that automate browser-based workflows at scale using natural language.
+          </p>
+          <div className="flex flex-wrap gap-4">
+            <a
+              href="/quickstart"
+              className="inline-flex items-center px-6 py-3 rounded-lg font-semibold bg-white text-[#d239ee] hover:bg-gray-100 transition-colors"
+            >
+              Get started
+              <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+            <a
+              href="/api/novaact"
+              className="inline-flex items-center px-6 py-3 rounded-lg font-semibold border-2 border-white/30 bg-white/10 text-white hover:bg-white/20 transition-colors"
+            >
+              API reference
+            </a>
+          </div>
+        </div>
+        <div className="lg:col-span-5 hidden lg:block">
+          <div className="relative w-full h-80 flex items-center justify-center">
+            <div className="absolute inset-0 bg-white/10 rounded-2xl backdrop-blur-sm border border-white/20"></div>
+            <svg className="relative w-32 h-32 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6zm0 4h8v2H6zm10-4h2v6h-2z"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-Get your documentation site up and running in minutes.
+  {/* Quick Start Section */}
+  <div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+    <h2 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">
+      Quick start
+    </h2>
+    <p className="text-base dark:text-gray-400 text-gray-600 mb-8">
+      Get up and running with Amazon Nova Act in minutes
+    </p>
+    
+    <Steps>
+      <Step title="Install the SDK">
+        Install Amazon Nova Act using pip:
+        
+        ```bash
+        pip install nova-act
+        ```
+      </Step>
+      
+      <Step title="Set up authentication">
+        Get your API key from [nova.amazon.com/act](https://nova.amazon.com/act) and set it as an environment variable:
+        
+        ```bash
+        export NOVA_ACT_API_KEY="your_api_key"
+        ```
+        
+        <Note>For production deployments, use IAM-based authentication with AWS credentials.</Note>
+      </Step>
+      
+      <Step title="Write your first workflow">
+        Create a simple browser automation script:
+        
+        ```python
+        from nova_act import NovaAct
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+        with NovaAct(starting_page="https://example.com") as nova:
+            nova.act("Find flights from Boston to Seattle on Feb 22nd")
+        ```
+        
+        The SDK will open Chrome, perform the task, and close the browser automatically.
+      </Step>
+      
+      <Step title="Extract structured data">
+        Use Pydantic schemas to extract information from web pages:
+        
+        ```python
+        from nova_act import NovaAct
+        from pydantic import BaseModel
 
-## Make it yours
+        class FlightData(BaseModel):
+            price: float
+            departure_time: str
+            
+        with NovaAct(starting_page="https://example.com") as nova:
+            result = nova.act_get(
+                "Find the cheapest flight and return its price and departure time",
+                schema=FlightData.model_json_schema()
+            )
+            flight = FlightData.model_validate(result.parsed_response)
+            print(f"Found flight: ${flight.price} at {flight.departure_time}")
+        ```
+      </Step>
+    </Steps>
+  </div>
 
-Design a docs site that looks great and empowers your users.
+  {/* Features Section */}
+  <div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+    <h2 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">
+      Explore by topic
+    </h2>
+    <p className="text-base dark:text-gray-400 text-gray-600 mb-8">
+      Learn about the key capabilities of Amazon Nova Act
+    </p>
+    
+    <CardGroup cols={2}>
+      <Card
+        title="Workflows"
+        icon="diagram-project"
+        href="/concepts/workflows"
+      >
+        Orchestrate complex browser automations with Python code and natural language prompts
+      </Card>
+      <Card
+        title="Browser automation"
+        icon="browser"
+        href="/concepts/browser-automation"
+      >
+        Control web browsers with AI-powered agents that understand natural language instructions
+      </Card>
+      <Card
+        title="Data extraction"
+        icon="database"
+        href="/concepts/data-extraction"
+      >
+        Extract structured data from web pages using Pydantic schemas and type-safe responses
+      </Card>
+      <Card
+        title="Human-in-the-loop"
+        icon="users"
+        href="/concepts/human-in-the-loop"
+      >
+        Enable human supervision with approval workflows and UI takeover capabilities
+      </Card>
+      <Card
+        title="Deployment"
+        icon="cloud-arrow-up"
+        href="/guides/deployment"
+      >
+        Deploy workflows to AWS AgentCore Runtime for production-scale automation
+      </Card>
+      <Card
+        title="Security"
+        icon="shield-halved"
+        href="/guides/security"
+      >
+        Control URL navigation, file access, and sensitive data with state guardrails
+      </Card>
+    </CardGroup>
+  </div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+  {/* API Reference Section */}
+  <div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+    <h2 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">
+      API reference
+    </h2>
+    <p className="text-base dark:text-gray-400 text-gray-600 mb-8">
+      Comprehensive reference for all classes, methods, and utilities
+    </p>
+    
+    <CardGroup cols={3}>
+      <Card
+        title="NovaAct"
+        icon="code"
+        href="/api/novaact"
+      >
+        Main client class for browser automation
+      </Card>
+      <Card
+        title="Workflow"
+        icon="sitemap"
+        href="/api/workflow"
+      >
+        Context manager for workflow orchestration
+      </Card>
+      <Card
+        title="SecurityOptions"
+        icon="lock"
+        href="/api/security-options"
+      >
+        Configure security controls and permissions
+      </Card>
+      <Card
+        title="Error handling"
+        icon="triangle-exclamation"
+        href="/api/errors"
+      >
+        Exception classes and error handling patterns
+      </Card>
+      <Card
+        title="Schemas"
+        icon="file-lines"
+        href="/api/schemas"
+      >
+        Built-in schemas for data extraction
+      </Card>
+      <Card
+        title="Tools"
+        icon="wrench"
+        href="/api/tools"
+      >
+        Integrate external APIs and functions
+      </Card>
+    </CardGroup>
+  </div>
 
-## Create beautiful pages
+  {/* Resources Section */}
+  <div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+    <h2 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">
+      Resources
+    </h2>
+    <p className="text-base dark:text-gray-400 text-gray-600 mb-8">
+      Additional resources and community links
+    </p>
+    
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <a
+        href="https://github.com/aws/nova-act"
+        className="group block rounded-2xl border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50 p-6 dark:hover:border-[#d239ee] hover:border-[#d239ee] transition-colors no-underline"
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <svg className="w-6 h-6 dark:text-gray-300 text-gray-700" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <h3 className="text-base font-semibold dark:text-white text-gray-900">GitHub repository</h3>
+        </div>
+        <p className="text-sm dark:text-gray-400 text-gray-600 mb-2">
+          View source code, report issues, and contribute to Nova Act
+        </p>
+        <span className="text-sm dark:text-gray-400 text-gray-600 dark:group-hover:text-[#d239ee] group-hover:text-[#d239ee] transition-colors">
+          Visit repository →
+        </span>
+      </a>
+      
+      <a
+        href="https://github.com/amazon-agi-labs/nova-act-samples"
+        className="group block rounded-2xl border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50 p-6 dark:hover:border-[#d239ee] hover:border-[#d239ee] transition-colors no-underline"
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <svg className="w-6 h-6 dark:text-gray-300 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+          <h3 className="text-base font-semibold dark:text-white text-gray-900">Code samples</h3>
+        </div>
+        <p className="text-sm dark:text-gray-400 text-gray-600 mb-2">
+          Explore real-world examples and sample workflows
+        </p>
+        <span className="text-sm dark:text-gray-400 text-gray-600 dark:group-hover:text-[#d239ee] group-hover:text-[#d239ee] transition-colors">
+          Browse samples →
+        </span>
+      </a>
+      
+      <a
+        href="https://docs.aws.amazon.com/nova-act/"
+        className="group block rounded-2xl border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50 p-6 dark:hover:border-[#d239ee] hover:border-[#d239ee] transition-colors no-underline"
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <svg className="w-6 h-6 dark:text-gray-300 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+          <h3 className="text-base font-semibold dark:text-white text-gray-900">AWS user guide</h3>
+        </div>
+        <p className="text-sm dark:text-gray-400 text-gray-600 mb-2">
+          Official AWS documentation for production deployments
+        </p>
+        <span className="text-sm dark:text-gray-400 text-gray-600 dark:group-hover:text-[#d239ee] group-hover:text-[#d239ee] transition-colors">
+          Read guide →
+        </span>
+      </a>
+      
+      <a
+        href="https://nova.amazon.com/act"
+        className="group block rounded-2xl border dark:border-[#27272a] border-gray-200 dark:bg-[#1a1d27] bg-gray-50 p-6 dark:hover:border-[#d239ee] hover:border-[#d239ee] transition-colors no-underline"
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <svg className="w-6 h-6 dark:text-gray-300 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+          </svg>
+          <h3 className="text-base font-semibold dark:text-white text-gray-900">Web playground</h3>
+        </div>
+        <p className="text-sm dark:text-gray-400 text-gray-600 mb-2">
+          Try Nova Act in your browser without installing anything
+        </p>
+        <span className="text-sm dark:text-gray-400 text-gray-600 dark:group-hover:text-[#d239ee] group-hover:text-[#d239ee] transition-colors">
+          Open playground →
+        </span>
+      </a>
+    </div>
+  </div>
 
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+  {/* CTA Banner */}
+  <div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+    <div className="rounded-2xl p-8 sm:p-12 text-center" style={{
+      background: 'linear-gradient(135deg, #d239ee 0%, #9e3cfc 50%, #5B2A83 100%)'
+    }}>
+      <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
+        Ready to automate your workflows?
+      </h2>
+      <p className="text-lg text-white/90 mb-8 max-w-2xl mx-auto">
+        Start building AI agents that can handle complex browser-based tasks at scale
+      </p>
+      <a
+        href="/quickstart"
+        className="inline-flex items-center px-6 py-3 rounded-lg font-semibold bg-white text-[#d239ee] hover:bg-gray-100 transition-colors"
+      >
+        Get started now
+        <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </a>
+    </div>
+  </div>
+</div>
